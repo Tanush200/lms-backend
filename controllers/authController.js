@@ -1,6 +1,6 @@
 const User = require("../models/User");
 const { createTokenResponse } = require("../utils/jwt");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 
 const register = async (req, res) => {
   try {
@@ -236,9 +236,24 @@ const changePassword = async (req, res) => {
       });
     }
 
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long",
+      });
+    }
+
     const user = await User.findById(req.user.id).select("+password");
 
-    if (!isValidPassword) {
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const isCurrentPasswordValid = await user.correctPassword(currentPassword);
+    if (!isCurrentPasswordValid) {
       return res.status(400).json({
         success: false,
         message: "Current password is incorrect",
@@ -262,8 +277,6 @@ const changePassword = async (req, res) => {
     });
   }
 };
-
-
 
 module.exports = {
   register,

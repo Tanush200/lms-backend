@@ -30,6 +30,8 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 const authRoutes = require('./routes/auth')
 const userRoutes = require('./routes/users');
+const courseRoutes = require('./routes/courses')
+const enrollmentRoutes = require('./routes/enrollments')
 
 
 app.get("/api/health", (req, res) => {
@@ -43,6 +45,8 @@ app.get("/api/health", (req, res) => {
 
 app.use('/api/auth',authRoutes);
 app.use('/api/users',userRoutes);
+app.use("/api/courses", courseRoutes);
+app.use("/api/enrollments", enrollmentRoutes);
 
 app.get("/api/test-roles", (req, res) => {
   const roles = [
