@@ -74,11 +74,10 @@ app.get("/api/debug/models", async (req, res) => {
     console.log("ProgrammingProblem type:", typeof ProgrammingProblem);
     console.log("CodeSubmission type:", typeof CodeSubmission);
 
-    // Test count
+
     const problemCount = await ProgrammingProblem.countDocuments();
     const submissionCount = await CodeSubmission.countDocuments();
 
-    // Test find
     const problems = await ProgrammingProblem.find().limit(1);
 
     res.json({
@@ -111,7 +110,7 @@ app.get("/api/test-routes", (req, res) => {
       "POST /api/auth/login", 
       "GET /api/courses",
       "POST /api/quizzes",
-      "POST /api/quizzes/:quizId/attempt", // ✅ This should exist
+      "POST /api/quizzes/:quizId/attempt",
       "GET /api/quiz-attempts/:attemptId"
     ]
   });
