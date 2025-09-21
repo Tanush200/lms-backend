@@ -35,6 +35,9 @@ const enrollmentRoutes = require('./routes/enrollments')
 const quizRoutes = require('./routes/quizzes');
 const questionRoutes = require('./routes/questions')
 const quizAttemptRoutes = require('./routes/quizAttempts')
+const programmingProblemRoutes = require("./routes/programmingProblems");
+const codeSubmissionRoutes = require("./routes/codeSubmissions"); 
+const judge0Routes = require("./routes/judge0"); 
 
 
 app.get("/api/health", (req, res) => {
@@ -42,19 +45,63 @@ app.get("/api/health", (req, res) => {
     message: "School Management API is running!",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
-    version: "1.0.0",
+    version: "2.0.0",
   });
 });
 
 app.use('/api/auth',authRoutes);
 app.use('/api/users',userRoutes);
+
 app.use("/api/courses", courseRoutes);
 app.use("/api/enrollments", enrollmentRoutes);
+
 app.use("/api/quizzes", quizRoutes);
 app.use("/api/questions", questionRoutes);
 app.use("/api", quizAttemptRoutes);
 
+app.use("/api/programming-problems", programmingProblemRoutes);
+app.use("/api/code-submissions", codeSubmissionRoutes);
+app.use("/api/judge0", judge0Routes);
 
+
+
+app.get("/api/debug/models", async (req, res) => {
+  try {
+    const ProgrammingProblem = require("./models/ProgrammingProblem");
+    const CodeSubmission = require("./models/CodeSubmission");
+
+    console.log("🔍 Testing models...");
+    console.log("ProgrammingProblem type:", typeof ProgrammingProblem);
+    console.log("CodeSubmission type:", typeof CodeSubmission);
+
+    // Test count
+    const problemCount = await ProgrammingProblem.countDocuments();
+    const submissionCount = await CodeSubmission.countDocuments();
+
+    // Test find
+    const problems = await ProgrammingProblem.find().limit(1);
+
+    res.json({
+      success: true,
+      data: {
+        problemCount,
+        submissionCount,
+        sampleProblem: problems[0] || null,
+        modelTypes: {
+          ProgrammingProblem: typeof ProgrammingProblem,
+          CodeSubmission: typeof CodeSubmission,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Model debug error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+    });
+  }
+});
 
 app.get("/api/test-routes", (req, res) => {
   res.json({
