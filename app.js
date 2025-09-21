@@ -32,6 +32,9 @@ const authRoutes = require('./routes/auth')
 const userRoutes = require('./routes/users');
 const courseRoutes = require('./routes/courses')
 const enrollmentRoutes = require('./routes/enrollments')
+const quizRoutes = require('./routes/quizzes');
+const questionRoutes = require('./routes/questions')
+const quizAttemptRoutes = require('./routes/quizAttempts')
 
 
 app.get("/api/health", (req, res) => {
@@ -47,6 +50,25 @@ app.use('/api/auth',authRoutes);
 app.use('/api/users',userRoutes);
 app.use("/api/courses", courseRoutes);
 app.use("/api/enrollments", enrollmentRoutes);
+app.use("/api/quizzes", quizRoutes);
+app.use("/api/questions", questionRoutes);
+app.use("/api", quizAttemptRoutes);
+
+
+
+app.get("/api/test-routes", (req, res) => {
+  res.json({
+    message: "Route mounting test",
+    routes: [
+      "POST /api/auth/register",
+      "POST /api/auth/login", 
+      "GET /api/courses",
+      "POST /api/quizzes",
+      "POST /api/quizzes/:quizId/attempt", // ✅ This should exist
+      "GET /api/quiz-attempts/:attemptId"
+    ]
+  });
+});
 
 app.get("/api/test-roles", (req, res) => {
   const roles = [
