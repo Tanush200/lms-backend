@@ -4,121 +4,202 @@ const bcrypt = require("bcryptjs");
 
 const register = async (req, res) => {
   try {
-    const { name, email, password, phone, address, role } = req.body;
+    const { name, email, password, role, phone, address } = req.body;
 
-    if (!name || !email || !password || !role) {
-      return res.status(400).json({
+    // ✅ SIMPLIFIED: Only allow student registration
+    if (role !== 'student') {
+      return res.status(403).json({
         success: false,
-        message: "Please provide name, email, password, and role",
+        message: 'Only student registration is allowed. Teachers are created by administrators.'
       });
     }
 
+    // Check if user already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
-
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: "User already exists with this email",
+        message: 'User already exists with this email'
       });
     }
 
-    const validRoles = [
-      "admin",
-      "principal",
-      "teacher",
-      "student",
-      "parent",
-      "accountant",
-      "librarian",
-    ];
+        const userCount = await User.countDocuments();
+        const isFirstUser = userCount === 0;
 
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid role. Valid roles are: ${validRoles.join(", ")}`,
-      });
-    }
+        // If first user, make them admin instead of student
+        const actualRole = isFirstUser ? "admin" : "student";
+    // Generate student ID
+    const studentCount = await User.countDocuments({ role: 'student' });
+    const studentId = `STU${Date.now()}${studentCount + 1}`;
 
-    let additionalFields = {};
-    if (role == "student") {
-      const studentCount = await User.countDocuments({ role: "student" });
-      additionalFields.studentId = `STU${Date.now()}${studentCount + 1}`;
-    } else if (
-      ["teacher", "principal", "accountant", "librarian"].includes(role)
-    ) {
-      const employeeCount = await User.countDocuments({
-        role: { $in: ["teacher", "principal", "accountant", "librarian"] },
-      });
-      additionalFields.employeeId = `EMP${Date.now()}${employeeCount + 1}`;
-    }
-
+    // Create user (password hashed by pre-save middleware)
     const user = await User.create({
       name,
       email: email.toLowerCase(),
       password,
+      role: 'student',
       phone,
       address,
-      role,
-      ...additionalFields,
+      studentId,
+      isActive: true, // ✅ Students always active immediately
+      emailVerified: false,
+      phoneVerified: false,
     });
 
+    // Generate token using your existing utility
     const tokenData = createTokenResponse(user);
-
     user.password = undefined;
 
     res.status(201).json({
       success: true,
-      message: "User registered successfully",
+      message: 'Student registration successful',
       data: {
         user: {
           id: user._id,
           name: user.name,
           email: user.email,
           role: user.role,
+          phone: user.phone,
+          address: user.address,
           studentId: user.studentId,
-          employeeId: user.employeeId,
           isActive: user.isActive,
+          emailVerified: user.emailVerified,
+          phoneVerified: user.phoneVerified,
           createdAt: user.createdAt,
         },
         auth: tokenData,
       },
     });
-  } catch (error) {
-    console.error("Registration error:", error);
 
-    if (error.name === "ValidationError") {
+  } catch (error) {
+    console.error('Registration error:', error);
+
+    if (error.name === 'ValidationError') {
       const errors = Object.values(error.errors).map((err) => err.message);
       return res.status(400).json({
         success: false,
-        message: "Validation error",
+        message: 'Validation error',
         errors,
       });
     }
 
     res.status(500).json({
       success: false,
-      message: "Registration failed",
+      message: 'Registration failed',
       error: error.message,
     });
   }
 };
 
+// Keep login and other functions as they were
+
+
+
+// const login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     if (!email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Please provide email and password",
+//       });
+//     }
+
+//     const user = await User.findOne({
+//       email: email.toLowerCase(),
+//     }).select("+password");
+
+//     if (!user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+
+//     if (!user.isActive) {
+//       return res.status(401).json({
+//         success: false,
+//         message:
+//           "Your account has been deactivated. Please contact administrator.",
+//       });
+//     }
+
+//     const isValidPassword = await user.correctPassword(password);
+//     if (!isValidPassword) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid email or password",
+//       });
+//     }
+//     user.lastLogin = new Date();
+
+//     await user.save({ validateBeforeSave: false });
+
+//     const tokenData = createTokenResponse(user);
+//     user.password = undefined;
+
+//     res.json({
+//       success: true,
+//       message: "Login successful",
+//       data: {
+//         user: {
+//           id: user._id,
+//           name: user.name,
+//           email: user.email,
+//           role: user.role,
+//           studentId: user.studentId,
+//           employeeId: user.employeeId,
+//           profilePhoto: user.profilePhoto,
+//           lastLogin: user.lastLogin,
+//         },
+//         auth: tokenData,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Login error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Login failed",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+// backend/controllers/authController.js - DEBUG LOGIN
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log('🔍 Login attempt for:', email);
+    console.log('🔍 Password provided:', password);
+
     if (!email || !password) {
+      console.log('❌ Missing email or password');
       return res.status(400).json({
         success: false,
         message: "Please provide email and password",
       });
     }
 
+    // Find user with password field included
     const user = await User.findOne({
       email: email.toLowerCase(),
     }).select("+password");
 
+    console.log('🔍 User found:', user ? 'YES' : 'NO');
+    if (user) {
+      console.log('🔍 User details:');
+      console.log('   - Name:', user.name);
+      console.log('   - Email:', user.email);
+      console.log('   - Role:', user.role);
+      console.log('   - Active:', user.isActive);
+      console.log('   - Password hash:', user.password.substring(0, 30) + '...');
+    }
+
     if (!user) {
+      console.log('❌ User not found');
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
@@ -126,24 +207,52 @@ const login = async (req, res) => {
     }
 
     if (!user.isActive) {
+      console.log('❌ User inactive');
       return res.status(401).json({
         success: false,
-        message:
-          "Your account has been deactivated. Please contact administrator.",
+        message: "Your account has been deactivated. Please contact administrator.",
       });
     }
 
-    const isValidPassword = await user.correctPassword(password);
-    if (!isValidPassword) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password",
-      });
+    // ✅ CRITICAL: Check if your User model has correctPassword method
+    console.log('🔍 Checking password...');
+    
+    // Method 1: If you have correctPassword method
+    if (typeof user.correctPassword === 'function') {
+      console.log('🔍 Using user.correctPassword() method');
+      const isValidPassword = await user.correctPassword(password);
+      console.log('🔍 Password valid:', isValidPassword);
+      
+      if (!isValidPassword) {
+        console.log('❌ Invalid password via correctPassword method');
+        return res.status(401).json({
+          success: false,
+          message: "Invalid email or password",
+        });
+      }
+    } else {
+      // Method 2: Direct bcrypt comparison
+      console.log('🔍 Using direct bcrypt.compare()');
+      const bcrypt = require('bcryptjs');
+      const isValidPassword = await bcrypt.compare(password, user.password);
+      console.log('🔍 Password valid:', isValidPassword);
+      
+      if (!isValidPassword) {
+        console.log('❌ Invalid password via bcrypt.compare');
+        return res.status(401).json({
+          success: false,
+          message: "Invalid email or password",
+        });
+      }
     }
+
+    console.log('✅ Login successful');
+
+    // Update last login
     user.lastLogin = new Date();
-
     await user.save({ validateBeforeSave: false });
 
+    // Generate token
     const tokenData = createTokenResponse(user);
     user.password = undefined;
 
@@ -156,10 +265,16 @@ const login = async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          phone: user.phone,
+          address: user.address,
           studentId: user.studentId,
           employeeId: user.employeeId,
           profilePhoto: user.profilePhoto,
+          isActive: user.isActive,
+          emailVerified: user.emailVerified,
+          phoneVerified: user.phoneVerified,
           lastLogin: user.lastLogin,
+          createdAt: user.createdAt,
         },
         auth: tokenData,
       },
@@ -173,6 +288,7 @@ const login = async (req, res) => {
     });
   }
 };
+
 
 const getMe = async (req, res) => {
   try {

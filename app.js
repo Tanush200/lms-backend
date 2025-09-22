@@ -38,6 +38,7 @@ const quizAttemptRoutes = require('./routes/quizAttempts')
 const programmingProblemRoutes = require("./routes/programmingProblems");
 const codeSubmissionRoutes = require("./routes/codeSubmissions"); 
 const judge0Routes = require("./routes/judge0"); 
+const adminRoutes = require("./routes/admin");
 
 
 app.get("/api/health", (req, res) => {
@@ -62,6 +63,8 @@ app.use("/api", quizAttemptRoutes);
 app.use("/api/programming-problems", programmingProblemRoutes);
 app.use("/api/code-submissions", codeSubmissionRoutes);
 app.use("/api/judge0", judge0Routes);
+
+app.use("/api/admin", adminRoutes);
 
 
 
