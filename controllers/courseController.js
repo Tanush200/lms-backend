@@ -740,6 +740,62 @@ const getCoursesByInstructor = async (req, res) => {
   }
 };
 
+const getPublicCourse = async (req, res) => {
+  try {
+    const { courseId } = req.params;
+
+    // ✅ Find only published courses for public access
+    const course = await Course.findOne({
+      _id: courseId,
+      status: "published",
+      isPublic: true,
+    })
+      .populate("instructor", "name email")
+      .populate("modules.materials", "title type duration")
+      .select("-materials -privateNotes -grading -settings.joinCode"); // Exclude sensitive data
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: "Course not found or not available publicly",
+      });
+    }
+
+    // ✅ Add basic stats (safe for public)
+    const enrollmentCount = await Enrollment.countDocuments({
+      course: courseId,
+      status: "active",
+    });
+
+    const avgRating = await Rating.aggregate([
+      { $match: { course: courseId } },
+      {
+        $group: { _id: null, average: { $avg: "$rating" }, count: { $sum: 1 } },
+      },
+    ]);
+
+    const courseData = {
+      ...course.toObject(),
+      stats: {
+        totalStudents: enrollmentCount,
+        rating: avgRating[0] || { average: 0, count: 0 },
+      },
+    };
+
+    res.json({
+      success: true,
+      data: courseData,
+    });
+  } catch (error) {
+    console.error("Get public course error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Could not fetch course",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createCourse,
   getCourses,
@@ -747,4 +803,5 @@ module.exports = {
   updateCourse,
   deleteCourse,
   getCoursesByInstructor,
+  getPublicCourse
 };
