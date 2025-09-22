@@ -334,3 +334,44 @@ For production environments:
 
 
 Assignment Management System? 📝
+
+
+
+
+
+
+
+
+src/
+├── app/
+│   └── dashboard/
+│       ├── admin/
+│       │   └── courses/
+│       │       ├── page.js        #Course management
+│       │       └── create/
+│       │           └── page.js       # Create course
+│       ├── teacher/
+│       │   └── courses/
+│       │       ├── page.js           # Teacher's courses
+│       │       ├── create/
+│       │       │   └── page.js       # Create course
+│       │       └── [id]/
+│       │           ├── page.js       # Course details/edit
+│       │           ├── materials/
+│       │           │   └── page.js   # Course materials
+│       │           └── students/
+│       │               └── page.js   # Enrolled students
+│       └── student/
+│           └── courses/
+│               ├── page.js           # Browse courses
+│               └── [id]/
+│                   └── page.js       # Course learning interface
+├── components/
+│   └── courses/
+│       ├── CourseCard.jsx
+│       ├── CourseFilters.jsx
+│       ├── CourseForm.jsx
+│       ├── EnrollmentButton.jsx
+│       └── MaterialUpload.jsx
+└── services/
+    └── course.service.js

@@ -289,40 +289,37 @@ const deleteMaterial = async (req, res) => {
 // @desc    Upload course material file
 // @route   POST /api/courses/:courseId/materials/upload
 // @access  Private (Course instructor or Admin/Principal)
-const uploadMaterialFile = [
-  uploadCourseContent.single("file"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: "No file uploaded",
-        });
-      }
-
-      res.json({
-        success: true,
-        message: "File uploaded successfully",
-        data: {
-          file: {
-            url: req.file.path,
-            public_id: req.file.filename,
-            size: req.file.size,
-            format: req.file.format,
-            resource_type: req.file.resource_type,
-          },
-        },
-      });
-    } catch (error) {
-      console.error("Upload file error:", error);
-      res.status(500).json({
+const uploadMaterialFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
         success: false,
-        message: "File upload failed",
-        error: error.message,
+        message: "No file uploaded",
       });
     }
-  },
-];
+
+    console.log("📤 File upload successful:", req.file);
+
+    res.json({
+      success: true,
+      message: "File uploaded successfully",
+      data: {
+        url: req.file.path,
+        public_id: req.file.filename,
+        size: req.file.size,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Upload file error:", error);
+    res.status(500).json({
+      success: false,
+      message: "File upload failed",
+      error: error.message,
+    });
+  }
+};
 
 module.exports = {
   addMaterial,
