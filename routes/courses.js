@@ -100,9 +100,15 @@ router.get("/teacher/:id",
         status: course.status
       });
 
+      // Attach enrollments count
+      const Enrollment = require('../models/Enrollment');
+      const enrollmentsCount = await Enrollment.countDocuments({ course: id });
+      const courseObj = course.toObject();
+      courseObj.stats = { ...(courseObj.stats || {}), totalStudents: enrollmentsCount };
+
       res.json({
         success: true,
-        data: course
+        data: courseObj
       });
     } catch (error) {
       console.error('❌ Error fetching teacher course:', error);

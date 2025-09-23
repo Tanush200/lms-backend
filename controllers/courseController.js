@@ -397,6 +397,26 @@ const getCourses = async (req, res) => {
 
     const total = await Course.countDocuments(filter);
 
+    // ✅ Attach enrollments count to each course as stats.totalStudents
+    try {
+      const courseIds = courses.map(c => c._id);
+      if (courseIds.length > 0) {
+        const counts = await Enrollment.aggregate([
+          { $match: { course: { $in: courseIds } } },
+          { $group: { _id: '$course', count: { $sum: 1 } } }
+        ]);
+        const idToCount = new Map(counts.map(c => [c._id.toString(), c.count]));
+        courses.forEach(course => {
+          course._doc.stats = {
+            ...(course._doc.stats || {}),
+            totalStudents: idToCount.get(course._id.toString()) || 0
+          };
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to attach enrollment counts to courses:', e.message);
+    }
+
     res.json({
       success: true,
       data: courses,
@@ -555,6 +575,14 @@ const getCourse = async (req, res) => {
       instructor: course.instructor?._id,
       createdBy: course.createdBy?._id
     });
+
+    // Attach enrollments count to single course
+    try {
+      const enrollmentsCount = await Enrollment.countDocuments({ course: course._id });
+      course._doc.stats = { ...(course._doc.stats || {}), totalStudents: enrollmentsCount };
+    } catch (e) {
+      console.warn('Failed to compute enrollments count for course:', e.message);
+    }
 
     res.json({
       success: true,
@@ -776,6 +804,52 @@ const deleteCourse = async (req, res) => {
 // @desc    Get courses by instructor
 // @route   GET /api/courses/instructor/:instructorId
 // @access  Private
+// const getCoursesByInstructor = async (req, res) => {
+//   try {
+//     const { instructorId } = req.params;
+
+//     const instructor = await User.findById(instructorId);
+//     if (!instructor) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Instructor not found",
+//       });
+//     }
+
+//     const courses = await Course.find({
+//       $or: [
+//         { instructor: instructorId },
+//         { assistantInstructors: instructorId },
+//       ],
+//     })
+//       .populate("instructor", "name email")
+//       .select("-materials")
+//       .sort({ createdAt: -1 });
+
+//     res.json({
+//       success: true,
+//       data: {
+//         instructor: {
+//           id: instructor._id,
+//           name: instructor.name,
+//           email: instructor.email,
+//         },
+//         coursesCount: courses.length,
+//         courses,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Get instructor courses error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not get instructor courses",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// controllers/courseController.js - UPDATE THIS FUNCTION
+
 const getCoursesByInstructor = async (req, res) => {
   try {
     const { instructorId } = req.params;
@@ -798,6 +872,24 @@ const getCoursesByInstructor = async (req, res) => {
       .select("-materials")
       .sort({ createdAt: -1 });
 
+    // ✅ ADD ENROLLMENT COUNT TO EACH COURSE
+    const coursesWithEnrollments = await Promise.all(
+      courses.map(async (course) => {
+        // Get enrollment count for this course
+        const enrollmentCount = await Enrollment.countDocuments({
+          course: course._id,
+          status: { $in: ['active', 'completed'] }
+        });
+
+        // Convert to plain object and add enrollment data
+        const courseObj = course.toObject();
+        courseObj.totalStudents = enrollmentCount;
+        courseObj.enrollmentCount = enrollmentCount;
+
+        return courseObj;
+      })
+    );
+
     res.json({
       success: true,
       data: {
@@ -806,8 +898,8 @@ const getCoursesByInstructor = async (req, res) => {
           name: instructor.name,
           email: instructor.email,
         },
-        coursesCount: courses.length,
-        courses,
+        coursesCount: coursesWithEnrollments.length,
+        courses: coursesWithEnrollments, // ✅ Now includes enrollment counts
       },
     });
   } catch (error) {
@@ -819,6 +911,9 @@ const getCoursesByInstructor = async (req, res) => {
     });
   }
 };
+
+
+
 
 // const getPublicCourse = async (req, res) => {
 //   try {
