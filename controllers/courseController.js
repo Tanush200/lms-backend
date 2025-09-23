@@ -915,15 +915,18 @@ const getCoursesByInstructor = async (req, res) => {
 
 
 
+
+
+
 // const getPublicCourse = async (req, res) => {
 //   try {
 //     const { courseId } = req.params;
 
-//     const mongoose = require('mongoose');
+//     const mongoose = require("mongoose");
 //     if (!mongoose.Types.ObjectId.isValid(courseId)) {
 //       return res.status(400).json({
 //         success: false,
-//         message: 'Invalid course ID'
+//         message: "Invalid course ID",
 //       });
 //     }
 
@@ -934,9 +937,8 @@ const getCoursesByInstructor = async (req, res) => {
 //       isPublic: true,
 //     })
 //       .populate("instructor", "name email")
-//       // Do not populate modules.materials to avoid MissingSchemaError when Material model is not registered
 //       .select("-materials -privateNotes -grading -settings.joinCode")
-//       .lean(); // return plain object for safer manipulation
+//       .lean(); // ✅ This makes it a plain object
 
 //     if (!course) {
 //       return res.status(404).json({
@@ -951,22 +953,27 @@ const getCoursesByInstructor = async (req, res) => {
 //       status: "active",
 //     });
 
-//     // ⚠️ If Rating model is not defined, skip rating aggregation
+//     // ✅ Safe rating aggregation
 //     let avgRating = [{ average: 0, count: 0 }];
 //     try {
-//       const Rating = require('../models/Rating');
+//       const Rating = require("../models/Rating");
 //       avgRating = await Rating.aggregate([
-//         { $match: { course: courseId } },
+//         { $match: { course: new mongoose.Types.ObjectId(courseId) } },
 //         {
-//           $group: { _id: null, average: { $avg: "$rating" }, count: { $sum: 1 } },
+//           $group: {
+//             _id: null,
+//             average: { $avg: "$rating" },
+//             count: { $sum: 1 },
+//           },
 //         },
 //       ]);
 //     } catch (e) {
-//       console.warn('Rating model not available, skipping rating aggregation');
+//       console.warn("Rating model not available, skipping rating aggregation");
 //     }
 
+//     // ✅ FIXED: Don't use .toObject() on a lean() result
 //     const courseData = {
-//       ...course.toObject(),
+//       ...course, // ✅ Already a plain object due to .lean()
 //       stats: {
 //         totalStudents: enrollmentCount,
 //         rating: avgRating[0] || { average: 0, count: 0 },
@@ -979,8 +986,11 @@ const getCoursesByInstructor = async (req, res) => {
 //     });
 //   } catch (error) {
 //     console.error("Get public course error:", error);
-//     if (error.name === 'CastError') {
-//       return res.status(400).json({ success: false, message: 'Invalid course ID' });
+//     if (error.name === "CastError") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid course ID",
+//       });
 //     }
 //     res.status(500).json({
 //       success: false,
@@ -991,62 +1001,102 @@ const getCoursesByInstructor = async (req, res) => {
 // };
 
 
+// controllers/courseController.js - UPDATE getPublicCourse
+
 const getPublicCourse = async (req, res) => {
   try {
     const { courseId } = req.params;
 
-    const mongoose = require("mongoose");
+    const mongoose = require('mongoose');
     if (!mongoose.Types.ObjectId.isValid(courseId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid course ID",
+        message: 'Invalid course ID'
       });
     }
 
-    // ✅ Find only published courses for public access
-    const course = await Course.findOne({
-      _id: courseId,
-      status: "published",
-      isPublic: true,
-    })
+    // Find the course (published or not)
+    const course = await Course.findById(courseId)
       .populate("instructor", "name email")
       .select("-materials -privateNotes -grading -settings.joinCode")
-      .lean(); // ✅ This makes it a plain object
+      .lean();
 
     if (!course) {
       return res.status(404).json({
         success: false,
-        message: "Course not found or not available publicly",
+        message: "Course not found"
       });
     }
 
-    // ✅ Add basic stats (safe for public)
+    // ✅ CHECK USER ACCESS AND ENROLLMENT
+    let userAccess = {
+      canAccess: false,
+      isEnrolled: false,
+      enrollmentStatus: null,
+      message: "Course preview only"
+    };
+
+    // Check if user is authenticated and is a student
+    if (req.user && req.user.role === 'student') {
+      // Check if student is enrolled
+      const enrollment = await Enrollment.findOne({
+        student: req.user._id,
+        course: courseId
+      });
+
+      if (enrollment) {
+        userAccess.isEnrolled = true;
+        userAccess.enrollmentStatus = enrollment.status;
+        
+        if (enrollment.status === 'active') {
+          userAccess.canAccess = true;
+          userAccess.message = "You are enrolled in this course";
+        } else if (enrollment.status === 'pending') {
+          userAccess.canAccess = false;
+          userAccess.message = "Your enrollment is pending approval. Please contact admin or wait for approval.";
+        } else if (enrollment.status === 'completed') {
+          userAccess.canAccess = true;
+          userAccess.message = "Course completed";
+        }
+      } else {
+        // Student not enrolled
+        userAccess.canAccess = false;
+        userAccess.message = course.requireApproval 
+          ? "Please contact admin to enroll in this course"
+          : "Please enroll in this course to access full content";
+      }
+    } else if (req.user && ['admin', 'principal', 'teacher'].includes(req.user.role)) {
+      // Admins/teachers can always access
+      userAccess.canAccess = true;
+      userAccess.message = "Full access granted";
+    } else {
+      // Non-authenticated users
+      userAccess.message = "Please login to enroll in this course";
+    }
+
+    // Get enrollment stats
     const enrollmentCount = await Enrollment.countDocuments({
       course: courseId,
       status: "active",
     });
 
-    // ✅ Safe rating aggregation
+    // Get ratings (safe)
     let avgRating = [{ average: 0, count: 0 }];
     try {
-      const Rating = require("../models/Rating");
+      const Rating = require('../models/Rating');
       avgRating = await Rating.aggregate([
         { $match: { course: new mongoose.Types.ObjectId(courseId) } },
         {
-          $group: {
-            _id: null,
-            average: { $avg: "$rating" },
-            count: { $sum: 1 },
-          },
+          $group: { _id: null, average: { $avg: "$rating" }, count: { $sum: 1 } },
         },
       ]);
     } catch (e) {
-      console.warn("Rating model not available, skipping rating aggregation");
+      console.warn('Rating model not available, skipping rating aggregation');
     }
 
-    // ✅ FIXED: Don't use .toObject() on a lean() result
     const courseData = {
-      ...course, // ✅ Already a plain object due to .lean()
+      ...course,
+      userAccess, // ✅ Include access information
       stats: {
         totalStudents: enrollmentCount,
         rating: avgRating[0] || { average: 0, count: 0 },
@@ -1059,10 +1109,10 @@ const getPublicCourse = async (req, res) => {
     });
   } catch (error) {
     console.error("Get public course error:", error);
-    if (error.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid course ID",
+    if (error.name === 'CastError') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid course ID' 
       });
     }
     res.status(500).json({
