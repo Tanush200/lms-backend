@@ -421,75 +421,148 @@ const getCourses = async (req, res) => {
 // @desc    Get single course by ID
 // @route   GET /api/courses/:id
 // @access  Public (published) / Private (enrolled students or course instructors)
+
+// const getCourse = async (req, res) => {
+//   try {
+//     let course = await Course.findById(req.params.id)
+//       .populate("instructor", "name email role")
+//       .populate("assistantInstructors", "name email role")
+//       .populate("prerequisites.course", "title");
+
+//     if (!course) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Course not found",
+//       });
+//     }
+
+//     let hasAccess = false;
+
+//     if (!req.user) {
+//       hasAccess = course.status === "published" && course.isPublic;
+//     } else {
+//       if (["admin", "principal"].includes(req.user.role)) {
+//         hasAccess = true;
+//       } else if (req.user.role === "teacher") {
+//         hasAccess =
+//           course.instructor._id.toString() === req.user._id.toString() ||
+//           course.assistantInstructors.some(
+//             (ai) => ai._id.toString() === req.user._id.toString()
+//           );
+//       } else if (req.user.role === "student") {
+//         const enrollment = await Enrollment.findOne({
+//           student: req.user._id,
+//           course: course._id,
+//           status: { $in: ["active", "completed"] },
+//         });
+
+//         hasAccess =
+//           enrollment || (course.status === "published" && course.isPublic);
+
+//         if (enrollment) {
+//           course._doc.enrollment = enrollment;
+//         }
+//       }
+//     }
+
+//     if (!hasAccess) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Access denied to this course",
+//       });
+//     }
+
+//     if (!req.user || (req.user.role === "student" && !course._doc.enrollment)) {
+//       course.materials = course.materials.filter(
+//         (material) => !material.isRequired
+//       );
+//     }
+
+//     res.json({
+//       success: true,
+//       data: { course },
+//     });
+//   } catch (error) {
+//     console.error("Get course error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not get course",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// controllers/courseController.js - UPDATED getCourse FUNCTION
+
 const getCourse = async (req, res) => {
   try {
-    let course = await Course.findById(req.params.id)
-      .populate("instructor", "name email role")
-      .populate("assistantInstructors", "name email role")
-      .populate("prerequisites.course", "title");
+    const { id } = req.params;
+    const userId = req.user._id;
+    const userRole = req.user.role;
+
+    console.log(`🔍 Getting course ${id} for user ${userId} (${userRole})`);
+
+    let query = { _id: id };
+
+    // ✅ Check if user is the course owner (instructor/creator)
+    const Course = require('../models/Course');
+    const isOwner = await Course.findOne({
+      _id: id,
+      $or: [
+        { instructor: userId },
+        { createdBy: userId }
+      ]
+    });
+
+    console.log(`👤 User is owner: ${!!isOwner}`);
+
+    // ✅ PERMISSION LOGIC:
+    // - Admins/Principals: Can access any course
+    // - Course Owners (Teachers): Can access their own courses (draft or published)  
+    // - Students/Others: Can only access published public courses
+    if (!['admin', 'principal'].includes(userRole) && !isOwner) {
+      query.status = 'published';
+      query.isPublic = true;
+      console.log("🔒 Non-owner access - requiring published + public");
+    } else {
+      console.log("✅ Owner or admin access - allowing any status (including draft)");
+    }
+
+    const course = await Course.findOne(query)
+      .populate('instructor', 'name email')
+      .populate('createdBy', 'name email');
 
     if (!course) {
+      console.log("❌ Course not found with query:", query);
       return res.status(404).json({
         success: false,
-        message: "Course not found",
+        message: `Course not found or you don't have access to view this course. Course ID: ${id}`
       });
     }
 
-    let hasAccess = false;
-
-    if (!req.user) {
-      hasAccess = course.status === "published" && course.isPublic;
-    } else {
-      if (["admin", "principal"].includes(req.user.role)) {
-        hasAccess = true;
-      } else if (req.user.role === "teacher") {
-        hasAccess =
-          course.instructor._id.toString() === req.user._id.toString() ||
-          course.assistantInstructors.some(
-            (ai) => ai._id.toString() === req.user._id.toString()
-          );
-      } else if (req.user.role === "student") {
-        const enrollment = await Enrollment.findOne({
-          student: req.user._id,
-          course: course._id,
-          status: { $in: ["active", "completed"] },
-        });
-
-        hasAccess =
-          enrollment || (course.status === "published" && course.isPublic);
-
-        if (enrollment) {
-          course._doc.enrollment = enrollment;
-        }
-      }
-    }
-
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied to this course",
-      });
-    }
-
-    if (!req.user || (req.user.role === "student" && !course._doc.enrollment)) {
-      course.materials = course.materials.filter(
-        (material) => !material.isRequired
-      );
-    }
+    console.log("✅ Course found:", {
+      id: course._id,
+      title: course.title,
+      status: course.status,
+      isPublic: course.isPublic,
+      instructor: course.instructor?._id,
+      createdBy: course.createdBy?._id
+    });
 
     res.json({
       success: true,
-      data: { course },
+      data: course
     });
   } catch (error) {
-    console.error("Get course error:", error);
+    console.error('❌ Error in getCourse:', error);
     res.status(500).json({
       success: false,
-      message: "Could not get course",
-      error: error.message,
+      message: 'Server error while fetching course',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
+
 
 // @desc    Update course
 // @route   PATCH /api/courses/:id

@@ -34,34 +34,88 @@ const router = express.Router();
 router.get('/', optionalAuth, getCourses);
 // router.get('/:id', optionalAuth, getCourse);
 router.get("/public/:courseId", getPublicCourse);
-router.get("/:id", async (req, res, next) => {
-  try {
-    const Course = require("../models/Course");
-    const course = await Course.findOne({
-      _id: req.params.id,
-      status: "published",
-      isPublic: true,
-    }).populate("instructor", "name email");
+// router.get("/:id", async (req, res, next) => {
+//   try {
+//     const Course = require("../models/Course");
+//     const course = await Course.findOne({
+//       _id: req.params.id,
+//       status: "published",
+//       isPublic: true,
+//     }).populate("instructor", "name email");
 
-    if (!course) {
-      return res.status(404).json({
-        success: false,
-        message: "Course not found or not available publicly",
-      });
-    }
+//     if (!course) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Course not found or not available publicly",
+//       });
+//     }
 
-    res.json({
-      success: true,
-      data: course,
-    });
-  } catch (error) {
-    // If public access fails, try with authentication
-    next();
-  }
-});
+//     res.json({
+//       success: true,
+//       data: course,
+//     });
+//   } catch (error) {
+//     // If public access fails, try with authentication
+//     next();
+//   }
+// });
 
 // =================== PROTECTED ROUTES ===================
 router.use(protect);
+
+// Add this BEFORE the general /:id route in routes/courses.js
+
+// ✅ TEACHER-SPECIFIC ROUTE - Always allows access to own courses
+router.get("/teacher/:id", 
+  authorize("teacher", "admin", "principal"),
+  async (req, res) => {
+    try {
+      const Course = require("../models/Course");
+      const { id } = req.params;
+      const userId = req.user._id;
+
+      console.log(`🎓 Teacher accessing course ${id}`);
+
+      // ✅ Find course owned by this teacher (any status)
+      const course = await Course.findOne({
+        _id: id,
+        $or: [
+          { instructor: userId },
+          { createdBy: userId }
+        ]
+      })
+      .populate('instructor', 'name email')
+      .populate('createdBy', 'name email');
+
+      if (!course) {
+        console.log("❌ Teacher course not found or not owned");
+        return res.status(404).json({
+          success: false,
+          message: 'Course not found or you are not the instructor of this course'
+        });
+      }
+
+      console.log("✅ Teacher course found:", {
+        id: course._id,
+        title: course.title,
+        status: course.status
+      });
+
+      res.json({
+        success: true,
+        data: course
+      });
+    } catch (error) {
+      console.error('❌ Error fetching teacher course:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error',
+        error: error.message
+      });
+    }
+  }
+);
+
 
 router.get("/:id", getCourse); 
 
