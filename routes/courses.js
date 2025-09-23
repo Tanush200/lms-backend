@@ -84,8 +84,7 @@ router.get("/teacher/:id",
           { createdBy: userId }
         ]
       })
-      .populate('instructor', 'name email')
-      .populate('createdBy', 'name email');
+      .populate('instructor', 'name email');
 
       if (!course) {
         console.log("❌ Teacher course not found or not owned");
