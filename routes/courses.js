@@ -32,8 +32,34 @@ const router = express.Router();
 
 // =================== PUBLIC ROUTES ===================
 router.get('/', optionalAuth, getCourses);
-// router.get('/:id', optionalAuth, getCourse);
 router.get("/public/:courseId", getPublicCourse);
+
+// ✅ Add public course access route (for published courses only)
+router.get('/:id', async (req, res, next) => {
+  try {
+    const Course = require("../models/Course");
+    const course = await Course.findOne({
+      _id: req.params.id,
+      status: "published",
+      isPublic: true,
+    }).populate("instructor", "name email");
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: "Course not found or not available publicly",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: course,
+    });
+  } catch (error) {
+    // If public access fails, try with authentication
+    next();
+  }
+});
 // router.get("/:id", async (req, res, next) => {
 //   try {
 //     const Course = require("../models/Course");

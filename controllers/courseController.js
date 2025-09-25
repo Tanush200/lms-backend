@@ -830,6 +830,7 @@ const getCoursesByInstructor = async (req, res) => {
 const getPublicCourse = async (req, res) => {
   try {
     const { courseId } = req.params;
+    console.log("🔍 getPublicCourse called with courseId:", courseId);
 
     // ✅ Find only published courses for public access
     const course = await Course.findOne({
@@ -841,7 +842,18 @@ const getPublicCourse = async (req, res) => {
       .populate("modules.materials", "title type duration")
       .select("-materials -privateNotes -grading -settings.joinCode"); // Exclude sensitive data
 
+    console.log("🔍 Course found:", !!course);
+    if (course) {
+      console.log("📚 Course details:", {
+        id: course._id,
+        title: course.title,
+        status: course.status,
+        isPublic: course.isPublic
+      });
+    }
+
     if (!course) {
+      console.log("❌ Course not found or not public");
       return res.status(404).json({
         success: false,
         message: "Course not found or not available publicly",
@@ -854,12 +866,19 @@ const getPublicCourse = async (req, res) => {
       status: "active",
     });
 
-    const avgRating = await Rating.aggregate([
-      { $match: { course: courseId } },
-      {
-        $group: { _id: null, average: { $avg: "$rating" }, count: { $sum: 1 } },
-      },
-    ]);
+    // ✅ Handle missing Rating model gracefully
+    let avgRating = [{ average: 0, count: 0 }];
+    try {
+      const Rating = require("../models/Rating");
+      avgRating = await Rating.aggregate([
+        { $match: { course: courseId } },
+        {
+          $group: { _id: null, average: { $avg: "$rating" }, count: { $sum: 1 } },
+        },
+      ]);
+    } catch (ratingError) {
+      console.warn("Rating model not found, using default values:", ratingError.message);
+    }
 
     const courseData = {
       ...course.toObject(),
