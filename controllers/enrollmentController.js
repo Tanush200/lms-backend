@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Enrollment = require("../models/Enrollment");
 const Course = require("../models/Course");
 const User = require("../models/User");
@@ -255,7 +256,8 @@ const updateEnrollmentStatus = async (req, res) => {
       });
     }
 
-
+    // ✅ FIXED: Allow students to mark their own enrollment as completed
+    const isStudent = enrollment.student.toString() === req.user._id.toString();
     const isInstructor =
       enrollment.course.instructor.toString() === req.user._id.toString();
     const isAssistant = enrollment.course.assistantInstructors.includes(
@@ -263,7 +265,10 @@ const updateEnrollmentStatus = async (req, res) => {
     );
     const isAdmin = ["admin", "principal"].includes(req.user.role);
 
-    if (!isInstructor && !isAssistant && !isAdmin) {
+    // Students can only mark their own enrollment as completed
+    if (isStudent && status === "completed") {
+      // Allow students to mark their own enrollment as completed
+    } else if (!isInstructor && !isAssistant && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: "Not authorized to update enrollment status",
@@ -328,10 +333,14 @@ const updateProgress = async (req, res) => {
     const { enrollmentId } = req.params;
     const { materialId, timeSpent, completed } = req.body;
 
-    const enrollment = await Enrollment.findById(enrollmentId).populate(
-      "course",
-      "instructor assistantInstructors materials"
-    );
+    const enrollment = await Enrollment.findById(enrollmentId).populate({
+      path: "course",
+      select: "instructor assistantInstructors materials",
+      populate: {
+        path: "materials",
+        select: "title type duration"
+      }
+    });
 
     if (!enrollment) {
       return res.status(404).json({
@@ -366,15 +375,122 @@ const updateProgress = async (req, res) => {
     }
 
 
-    enrollment.updateMaterialProgress(materialId, timeSpent || 0, completed);
-    await enrollment.save();
+    // ✅ FIXED: Use atomic update with upsert to prevent version conflicts
+    const materialObjectId = new mongoose.Types.ObjectId(materialId);
+    
+    // First, try to update existing material progress
+    let updateResult = await Enrollment.findOneAndUpdate(
+      { 
+        _id: enrollmentId,
+        "progress.materialsViewed.material": materialObjectId
+      },
+      {
+        $set: {
+          "progress.materialsViewed.$.timeSpent": timeSpent || 0,
+          "progress.materialsViewed.$.completed": completed,
+          "progress.materialsViewed.$.viewedAt": new Date()
+        },
+        $inc: {
+          "performance.totalTimeSpent": timeSpent || 0
+        },
+        $set: {
+          "progress.lastAccessedAt": new Date()
+        }
+      },
+      { 
+        new: true,
+        runValidators: true
+      }
+    ).populate({
+      path: "course",
+      select: "instructor assistantInstructors materials",
+      populate: {
+        path: "materials",
+        select: "title type duration"
+      }
+    });
+
+    // If no existing material found, add it as new
+    if (!updateResult) {
+      updateResult = await Enrollment.findOneAndUpdate(
+        { _id: enrollmentId },
+        {
+          $push: {
+            "progress.materialsViewed": {
+              material: materialObjectId,
+              timeSpent: timeSpent || 0,
+              completed: completed,
+              viewedAt: new Date()
+            }
+          },
+          $inc: {
+            "performance.totalTimeSpent": timeSpent || 0
+          },
+          $set: {
+            "progress.lastAccessedAt": new Date()
+          }
+        },
+        { 
+          new: true,
+          runValidators: true
+        }
+      ).populate({
+        path: "course",
+        select: "instructor assistantInstructors materials",
+        populate: {
+          path: "materials",
+          select: "title type duration"
+        }
+      });
+    }
+
+    if (!updateResult) {
+      return res.status(404).json({
+        success: false,
+        message: "Enrollment not found",
+      });
+    }
+
+    // Calculate and update overall progress
+    const totalMaterials = updateResult.course?.materials?.length || 0;
+    const completedMaterials = updateResult.progress.materialsViewed.filter(
+      (m) => m && m.completed === true
+    ).length;
+    
+    let overallProgress = 0;
+    if (totalMaterials > 0) {
+      overallProgress = Math.round((completedMaterials / totalMaterials) * 100);
+    }
+    
+    // Ensure progress is within bounds
+    overallProgress = Math.min(100, Math.max(0, overallProgress));
+    
+    // Update the overall progress
+    await Enrollment.findByIdAndUpdate(
+      enrollmentId,
+      { 
+        $set: { 
+          "progress.overallProgress": overallProgress 
+        } 
+      }
+    );
+
+    // Get the final updated enrollment for response
+    const finalEnrollment = await Enrollment.findById(enrollmentId).populate({
+      path: "course",
+      select: "instructor assistantInstructors materials",
+      populate: {
+        path: "materials",
+        select: "title type duration"
+      }
+    });
 
     res.json({
       success: true,
       message: "Progress updated successfully",
       data: {
-        overallProgress: enrollment.progress.overallProgress,
-        materialProgress: enrollment.progress.materialsViewed.find(
+        overallProgress: finalEnrollment.progress.overallProgress,
+        materialProgress: finalEnrollment.progress.materialsViewed.find(
           (m) => m.material.toString() === materialId
         ),
       },
@@ -443,6 +559,86 @@ const dropFromCourse = async (req, res) => {
   }
 };
 
+// @desc    Mark course as completed by student
+// @route   PATCH /api/enrollments/:enrollmentId/complete
+// @access  Private (Student themselves)
+const markCourseCompleted = async (req, res) => {
+  try {
+    const { enrollmentId } = req.params;
+
+    const enrollment = await Enrollment.findById(enrollmentId).populate(
+      "course",
+      "instructor assistantInstructors title materials"
+    );
+
+    if (!enrollment) {
+      return res.status(404).json({
+        success: false,
+        message: "Enrollment not found",
+      });
+    }
+
+    // Check if user is the student
+    if (enrollment.student.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only complete your own courses",
+      });
+    }
+
+    // Check if already completed
+    if (enrollment.status === "completed") {
+      return res.status(400).json({
+        success: false,
+        message: "Course is already completed",
+      });
+    }
+
+    // Calculate progress based on completed materials
+    const totalMaterials = enrollment.course.materials.length;
+    const completedMaterials = enrollment.progress.materialsViewed.filter(
+      (m) => m.completed
+    ).length;
+    const progressPercentage = totalMaterials > 0 
+      ? Math.round((completedMaterials / totalMaterials) * 100) 
+      : 0;
+
+    // Only allow completion if progress is 100% or close to it
+    if (progressPercentage < 90) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot complete course. Progress is only ${progressPercentage}%. Complete more materials first.`,
+        data: { progress: progressPercentage }
+      });
+    }
+
+    // Update enrollment status
+    enrollment.status = "completed";
+    enrollment.completedAt = new Date();
+    enrollment.progress.overallProgress = 100; // ✅ Explicitly set to 100 for completed courses
+    
+    await enrollment.save();
+
+    res.json({
+      success: true,
+      message: "Course marked as completed successfully! 🎉",
+      data: { 
+        enrollment,
+        progress: progressPercentage,
+        completedMaterials,
+        totalMaterials
+      },
+    });
+  } catch (error) {
+    console.error("Mark course completed error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Could not mark course as completed",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   enrollInCourse,
   getStudentEnrollments,
@@ -450,4 +646,5 @@ module.exports = {
   updateEnrollmentStatus,
   updateProgress,
   dropFromCourse,
+  markCourseCompleted,
 };

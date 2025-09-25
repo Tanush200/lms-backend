@@ -195,24 +195,49 @@ enrollmentSchema.methods.updateMaterialProgress = function (
 
   this.performance.totalTimeSpent += timeSpent;
 
-
   this.calculateOverallProgress();
 };
 
 
 enrollmentSchema.methods.calculateOverallProgress = function () {
-  // This will be enhanced when we have the full course structure
-  const totalMaterials = this.progress.materialsViewed.length;
-  const completedMaterials = this.progress.materialsViewed.filter(
-    (m) => m.completed
-  ).length;
+  // ✅ FIXED: Calculate progress based on course materials, not just viewed materials
+  let calculatedProgress = 0;
+  
+  try {
+    if (this.course && this.course.materials && Array.isArray(this.course.materials)) {
+      const totalMaterials = this.course.materials.length;
+      const completedMaterials = this.progress.materialsViewed.filter(
+        (m) => m && m.completed === true
+      ).length;
 
-  if (totalMaterials > 0) {
-    this.progress.overallProgress = Math.round(
-      (completedMaterials / totalMaterials) * 100
-    );
+      if (totalMaterials > 0) {
+        calculatedProgress = Math.round(
+          (completedMaterials / totalMaterials) * 100
+        );
+      }
+    } else {
+      // Fallback to old calculation if course materials not available
+      const totalMaterials = this.progress.materialsViewed.length;
+      const completedMaterials = this.progress.materialsViewed.filter(
+        (m) => m && m.completed === true
+      ).length;
+
+      if (totalMaterials > 0) {
+        calculatedProgress = Math.round(
+          (completedMaterials / totalMaterials) * 100
+        );
+      }
+    }
+
+    // ✅ CRITICAL FIX: Ensure progress never exceeds 100%
+    calculatedProgress = Math.min(100, Math.max(0, calculatedProgress));
+    
+  } catch (error) {
+    console.error("❌ Error calculating progress:", error);
+    calculatedProgress = 0;
   }
 
+  this.progress.overallProgress = calculatedProgress;
   return this.progress.overallProgress;
 };
 
@@ -232,8 +257,9 @@ enrollmentSchema.statics.getStudentEnrollments = function (
   if (status) query.status = status;
 
   return this.find(query)
-    .populate("course", "title description instructor startDate endDate")
+    .populate("course", "title description instructor startDate endDate materials")
     .populate("course.instructor", "name email")
+    .populate("course.materials", "title type duration")
     .sort({ enrolledAt: -1 });
 };
 
