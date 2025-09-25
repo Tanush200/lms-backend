@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 
 const courseSchema = new mongoose.Schema(
   {
-
     title: {
       type: String,
       required: [true, "Course title is required"],
@@ -30,6 +29,10 @@ const courseSchema = new mongoose.Schema(
       type: String,
       required: [true, "Class is required"],
       trim: true,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
     },
     category: {
       type: String,
@@ -92,7 +95,6 @@ const courseSchema = new mongoose.Schema(
       },
     ],
 
-
     modules: [
       {
         title: {
@@ -117,7 +119,6 @@ const courseSchema = new mongoose.Schema(
       },
     ],
 
-
     instructor: {
       type: mongoose.Schema.ObjectId,
       ref: "User",
@@ -130,7 +131,6 @@ const courseSchema = new mongoose.Schema(
       },
     ],
 
-
     maxStudents: {
       type: Number,
       default: 1000,
@@ -138,7 +138,6 @@ const courseSchema = new mongoose.Schema(
     enrollmentDeadline: Date,
     startDate: Date,
     endDate: Date,
-
 
     status: {
       type: String,
@@ -149,7 +148,6 @@ const courseSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-
 
     prerequisites: [
       {
@@ -164,7 +162,6 @@ const courseSchema = new mongoose.Schema(
       },
     ],
 
-
     allowSelfEnrollment: {
       type: Boolean,
       default: true,
@@ -177,7 +174,6 @@ const courseSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-
 
     stats: {
       totalStudents: {

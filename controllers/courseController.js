@@ -397,26 +397,6 @@ const getCourses = async (req, res) => {
 
     const total = await Course.countDocuments(filter);
 
-    // ✅ Attach enrollments count to each course as stats.totalStudents
-    try {
-      const courseIds = courses.map(c => c._id);
-      if (courseIds.length > 0) {
-        const counts = await Enrollment.aggregate([
-          { $match: { course: { $in: courseIds } } },
-          { $group: { _id: '$course', count: { $sum: 1 } } }
-        ]);
-        const idToCount = new Map(counts.map(c => [c._id.toString(), c.count]));
-        courses.forEach(course => {
-          course._doc.stats = {
-            ...(course._doc.stats || {}),
-            totalStudents: idToCount.get(course._id.toString()) || 0
-          };
-        });
-      }
-    } catch (e) {
-      console.warn('Failed to attach enrollment counts to courses:', e.message);
-    }
-
     res.json({
       success: true,
       data: courses,
@@ -517,8 +497,8 @@ const getCourses = async (req, res) => {
 const getCourse = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user ? req.user._id : null;
-    const userRole = req.user ? req.user.role : null;
+    const userId = req.user._id;
+    const userRole = req.user.role;
 
     console.log(`🔍 Getting course ${id} for user ${userId} (${userRole})`);
 
@@ -526,38 +506,45 @@ const getCourse = async (req, res) => {
 
     // ✅ Check if user is the course owner (instructor/creator)
     const Course = require('../models/Course');
-    let isOwner = null;
-    if (userId) {
-      isOwner = await Course.findOne({
-        _id: id,
-        $or: [
-          { instructor: userId },
-          { createdBy: userId }
-        ]
-      });
-    }
+    const isOwner = await Course.findOne({
+      _id: id,
+      $or: [
+        { instructor: userId },
+        { createdBy: userId }
+      ]
+    });
 
     console.log(`👤 User is owner: ${!!isOwner}`);
+
+    // ✅ Check if user is enrolled in the course (for students)
+    let isEnrolled = false;
+    if (userRole === 'student') {
+      const Enrollment = require('../models/Enrollment');
+      const enrollment = await Enrollment.findOne({
+        student: userId,
+        course: id,
+        status: { $in: ['active', 'completed'] }
+      });
+      isEnrolled = !!enrollment;
+      console.log(`🎓 Student enrollment status: ${isEnrolled}`);
+    }
 
     // ✅ PERMISSION LOGIC:
     // - Admins/Principals: Can access any course
     // - Course Owners (Teachers): Can access their own courses (draft or published)  
-    // - Students/Others: Can only access published public courses
-    if (!userRole) {
-      // Unauthenticated users: only published & public courses
+    // - Enrolled Students: Can access courses they're enrolled in (any status)
+    // - Others: Can only access published public courses
+    if (!['admin', 'principal'].includes(userRole) && !isOwner && !isEnrolled) {
       query.status = 'published';
       query.isPublic = true;
-      console.log("🔒 Public access - requiring published + public");
-    } else if (!['admin', 'principal'].includes(userRole) && !isOwner) {
-      query.status = 'published';
-      query.isPublic = true;
-      console.log("🔒 Non-owner access - requiring published + public");
+      console.log("🔒 Non-owner, non-enrolled access - requiring published + public");
     } else {
-      console.log("✅ Owner or admin access - allowing any status (including draft)");
+      console.log("✅ Owner, admin, or enrolled access - allowing any status");
     }
 
     const course = await Course.findOne(query)
-      .populate('instructor', 'name email');
+      .populate('instructor', 'name email')
+      // .populate('createdBy', 'name email');
 
     if (!course) {
       console.log("❌ Course not found with query:", query);
@@ -575,14 +562,6 @@ const getCourse = async (req, res) => {
       instructor: course.instructor?._id,
       createdBy: course.createdBy?._id
     });
-
-    // Attach enrollments count to single course
-    try {
-      const enrollmentsCount = await Enrollment.countDocuments({ course: course._id });
-      course._doc.stats = { ...(course._doc.stats || {}), totalStudents: enrollmentsCount };
-    } catch (e) {
-      console.warn('Failed to compute enrollments count for course:', e.message);
-    }
 
     res.json({
       success: true,
@@ -804,52 +783,6 @@ const deleteCourse = async (req, res) => {
 // @desc    Get courses by instructor
 // @route   GET /api/courses/instructor/:instructorId
 // @access  Private
-// const getCoursesByInstructor = async (req, res) => {
-//   try {
-//     const { instructorId } = req.params;
-
-//     const instructor = await User.findById(instructorId);
-//     if (!instructor) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Instructor not found",
-//       });
-//     }
-
-//     const courses = await Course.find({
-//       $or: [
-//         { instructor: instructorId },
-//         { assistantInstructors: instructorId },
-//       ],
-//     })
-//       .populate("instructor", "name email")
-//       .select("-materials")
-//       .sort({ createdAt: -1 });
-
-//     res.json({
-//       success: true,
-//       data: {
-//         instructor: {
-//           id: instructor._id,
-//           name: instructor.name,
-//           email: instructor.email,
-//         },
-//         coursesCount: courses.length,
-//         courses,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Get instructor courses error:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Could not get instructor courses",
-//       error: error.message,
-//     });
-//   }
-// };
-
-// controllers/courseController.js - UPDATE THIS FUNCTION
-
 const getCoursesByInstructor = async (req, res) => {
   try {
     const { instructorId } = req.params;
@@ -872,24 +805,6 @@ const getCoursesByInstructor = async (req, res) => {
       .select("-materials")
       .sort({ createdAt: -1 });
 
-    // ✅ ADD ENROLLMENT COUNT TO EACH COURSE
-    const coursesWithEnrollments = await Promise.all(
-      courses.map(async (course) => {
-        // Get enrollment count for this course
-        const enrollmentCount = await Enrollment.countDocuments({
-          course: course._id,
-          status: { $in: ['active', 'completed'] }
-        });
-
-        // Convert to plain object and add enrollment data
-        const courseObj = course.toObject();
-        courseObj.totalStudents = enrollmentCount;
-        courseObj.enrollmentCount = enrollmentCount;
-
-        return courseObj;
-      })
-    );
-
     res.json({
       success: true,
       data: {
@@ -898,8 +813,8 @@ const getCoursesByInstructor = async (req, res) => {
           name: instructor.name,
           email: instructor.email,
         },
-        coursesCount: coursesWithEnrollments.length,
-        courses: coursesWithEnrollments, // ✅ Now includes enrollment counts
+        coursesCount: courses.length,
+        courses,
       },
     });
   } catch (error) {
@@ -912,191 +827,42 @@ const getCoursesByInstructor = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-// const getPublicCourse = async (req, res) => {
-//   try {
-//     const { courseId } = req.params;
-
-//     const mongoose = require("mongoose");
-//     if (!mongoose.Types.ObjectId.isValid(courseId)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid course ID",
-//       });
-//     }
-
-//     // ✅ Find only published courses for public access
-//     const course = await Course.findOne({
-//       _id: courseId,
-//       status: "published",
-//       isPublic: true,
-//     })
-//       .populate("instructor", "name email")
-//       .select("-materials -privateNotes -grading -settings.joinCode")
-//       .lean(); // ✅ This makes it a plain object
-
-//     if (!course) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Course not found or not available publicly",
-//       });
-//     }
-
-//     // ✅ Add basic stats (safe for public)
-//     const enrollmentCount = await Enrollment.countDocuments({
-//       course: courseId,
-//       status: "active",
-//     });
-
-//     // ✅ Safe rating aggregation
-//     let avgRating = [{ average: 0, count: 0 }];
-//     try {
-//       const Rating = require("../models/Rating");
-//       avgRating = await Rating.aggregate([
-//         { $match: { course: new mongoose.Types.ObjectId(courseId) } },
-//         {
-//           $group: {
-//             _id: null,
-//             average: { $avg: "$rating" },
-//             count: { $sum: 1 },
-//           },
-//         },
-//       ]);
-//     } catch (e) {
-//       console.warn("Rating model not available, skipping rating aggregation");
-//     }
-
-//     // ✅ FIXED: Don't use .toObject() on a lean() result
-//     const courseData = {
-//       ...course, // ✅ Already a plain object due to .lean()
-//       stats: {
-//         totalStudents: enrollmentCount,
-//         rating: avgRating[0] || { average: 0, count: 0 },
-//       },
-//     };
-
-//     res.json({
-//       success: true,
-//       data: courseData,
-//     });
-//   } catch (error) {
-//     console.error("Get public course error:", error);
-//     if (error.name === "CastError") {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid course ID",
-//       });
-//     }
-//     res.status(500).json({
-//       success: false,
-//       message: "Could not fetch course",
-//       error: error.message,
-//     });
-//   }
-// };
-
-
-// controllers/courseController.js - UPDATE getPublicCourse
-
 const getPublicCourse = async (req, res) => {
   try {
     const { courseId } = req.params;
 
-    const mongoose = require('mongoose');
-    if (!mongoose.Types.ObjectId.isValid(courseId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid course ID'
-      });
-    }
-
-    // Find the course (published or not)
-    const course = await Course.findById(courseId)
+    // ✅ Find only published courses for public access
+    const course = await Course.findOne({
+      _id: courseId,
+      status: "published",
+      isPublic: true,
+    })
       .populate("instructor", "name email")
-      .select("-materials -privateNotes -grading -settings.joinCode")
-      .lean();
+      .populate("modules.materials", "title type duration")
+      .select("-materials -privateNotes -grading -settings.joinCode"); // Exclude sensitive data
 
     if (!course) {
       return res.status(404).json({
         success: false,
-        message: "Course not found"
+        message: "Course not found or not available publicly",
       });
     }
 
-    // ✅ CHECK USER ACCESS AND ENROLLMENT
-    let userAccess = {
-      canAccess: false,
-      isEnrolled: false,
-      enrollmentStatus: null,
-      message: "Course preview only"
-    };
-
-    // Check if user is authenticated and is a student
-    if (req.user && req.user.role === 'student') {
-      // Check if student is enrolled
-      const enrollment = await Enrollment.findOne({
-        student: req.user._id,
-        course: courseId
-      });
-
-      if (enrollment) {
-        userAccess.isEnrolled = true;
-        userAccess.enrollmentStatus = enrollment.status;
-        
-        if (enrollment.status === 'active') {
-          userAccess.canAccess = true;
-          userAccess.message = "You are enrolled in this course";
-        } else if (enrollment.status === 'pending') {
-          userAccess.canAccess = false;
-          userAccess.message = "Your enrollment is pending approval. Please contact admin or wait for approval.";
-        } else if (enrollment.status === 'completed') {
-          userAccess.canAccess = true;
-          userAccess.message = "Course completed";
-        }
-      } else {
-        // Student not enrolled
-        userAccess.canAccess = false;
-        userAccess.message = course.requireApproval 
-          ? "Please contact admin to enroll in this course"
-          : "Please enroll in this course to access full content";
-      }
-    } else if (req.user && ['admin', 'principal', 'teacher'].includes(req.user.role)) {
-      // Admins/teachers can always access
-      userAccess.canAccess = true;
-      userAccess.message = "Full access granted";
-    } else {
-      // Non-authenticated users
-      userAccess.message = "Please login to enroll in this course";
-    }
-
-    // Get enrollment stats
+    // ✅ Add basic stats (safe for public)
     const enrollmentCount = await Enrollment.countDocuments({
       course: courseId,
       status: "active",
     });
 
-    // Get ratings (safe)
-    let avgRating = [{ average: 0, count: 0 }];
-    try {
-      const Rating = require('../models/Rating');
-      avgRating = await Rating.aggregate([
-        { $match: { course: new mongoose.Types.ObjectId(courseId) } },
-        {
-          $group: { _id: null, average: { $avg: "$rating" }, count: { $sum: 1 } },
-        },
-      ]);
-    } catch (e) {
-      console.warn('Rating model not available, skipping rating aggregation');
-    }
+    const avgRating = await Rating.aggregate([
+      { $match: { course: courseId } },
+      {
+        $group: { _id: null, average: { $avg: "$rating" }, count: { $sum: 1 } },
+      },
+    ]);
 
     const courseData = {
-      ...course,
-      userAccess, // ✅ Include access information
+      ...course.toObject(),
       stats: {
         totalStudents: enrollmentCount,
         rating: avgRating[0] || { average: 0, count: 0 },
@@ -1109,12 +875,6 @@ const getPublicCourse = async (req, res) => {
     });
   } catch (error) {
     console.error("Get public course error:", error);
-    if (error.name === 'CastError') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid course ID' 
-      });
-    }
     res.status(500).json({
       success: false,
       message: "Could not fetch course",
@@ -1122,7 +882,6 @@ const getPublicCourse = async (req, res) => {
     });
   }
 };
-
 
 module.exports = {
   createCourse,
