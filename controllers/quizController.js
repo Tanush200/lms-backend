@@ -447,6 +447,11 @@ const updateQuiz = async (req, res) => {
 // @desc    Delete quiz
 // @route   DELETE /api/quizzes/:id
 // @access  Private (Quiz creator or Admin/Principal)
+// In your backend/controllers/quizController.js - Update deleteQuiz function
+
+// @desc    Delete quiz
+// @route   DELETE /api/quizzes/:id
+// @access  Private (Quiz creator or Admin/Principal)
 const deleteQuiz = async (req, res) => {
   try {
     const quiz = await Quiz.findById(req.params.id);
@@ -458,34 +463,48 @@ const deleteQuiz = async (req, res) => {
       });
     }
 
+    console.log("🗑️ Attempting to delete quiz:", {
+      quizId: quiz._id,
+      title: quiz.title,
+      creator: quiz.creator,
+      currentUser: req.user._id,
+      userRole: req.user.role
+    });
 
+    // ✅ Check authorization
     const isCreator = quiz.creator.toString() === req.user._id.toString();
     const isAdmin = ["admin", "principal"].includes(req.user.role);
 
     if (!isCreator && !isAdmin) {
+      console.log("❌ Authorization failed - not creator or admin");
       return res.status(403).json({
         success: false,
         message: "Not authorized to delete this quiz",
       });
     }
 
+    // ✅ Check for student attempts
     const attemptCount = await QuizAttempt.countDocuments({ quiz: quiz._id });
+    console.log("📊 Quiz attempt count:", attemptCount);
 
     if (attemptCount > 0 && !isAdmin) {
+      console.log("❌ Cannot delete - quiz has attempts and user is not admin");
       return res.status(400).json({
         success: false,
-        message:
-          "Cannot delete quiz with student attempts. Please contact administrator.",
+        message: `Cannot delete quiz with ${attemptCount} student attempts. Please contact administrator.`,
       });
     }
 
-
+    // ✅ If admin and has attempts, delete attempts first
     if (attemptCount > 0 && isAdmin) {
+      console.log("🗑️ Admin deleting quiz with attempts - removing attempts first");
       await QuizAttempt.deleteMany({ quiz: quiz._id });
+      console.log("✅ Quiz attempts deleted");
     }
 
-
+    // ✅ Delete the quiz
     await Quiz.findByIdAndDelete(req.params.id);
+    console.log("✅ Quiz deleted successfully");
 
     res.json({
       success: true,
@@ -500,6 +519,7 @@ const deleteQuiz = async (req, res) => {
     });
   }
 };
+
 
 // @desc    Get quiz statistics
 // @route   GET /api/quizzes/:id/stats

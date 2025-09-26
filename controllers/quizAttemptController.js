@@ -1,7 +1,10 @@
+// backend/controllers/quizAttemptController.js - COMPLETE FIXED VERSION
+
 const QuizAttempt = require("../models/QuizAttempt");
 const Quiz = require("../models/Quiz");
 const Question = require("../models/Question");
 const Enrollment = require("../models/Enrollment");
+const Course = require("../models/Course"); // ✅ Make sure this import exists
 
 // @desc    Start quiz attempt
 // @route   POST /api/quizzes/:quizId/attempt
@@ -22,7 +25,7 @@ const startQuizAttempt = async (req, res) => {
       });
     }
 
-
+    // Check enrollment
     const enrollment = await Enrollment.findOne({
       student: studentId,
       course: quiz.course._id,
@@ -36,11 +39,81 @@ const startQuizAttempt = async (req, res) => {
       });
     }
 
+    // ✅ FIXED: Check for existing in-progress attempt FIRST
+    const existingInProgressAttempt = await QuizAttempt.findOne({
+      quiz: quizId,
+      student: studentId,
+      status: "in_progress",
+    });
 
-    const attemptCount = await QuizAttempt.getStudentAttemptCount(
-      quizId,
-      studentId
-    );
+    if (existingInProgressAttempt) {
+      console.log("🔄 Returning existing in-progress attempt:", existingInProgressAttempt._id);
+      
+      // Return existing attempt instead of creating new one
+      const questions = quiz.randomizeQuestions
+        ? [...quiz.questions].sort(() => Math.random() - 0.5)
+        : quiz.questions;
+
+      const quizData = {
+        ...quiz.toObject(),
+        questions: questions.map((q) => {
+          const questionData = {
+            _id: q._id,
+            question: q.question,
+            type: q.type,
+            description: q.description,
+            image: q.image,
+            points: q.points,
+            timeLimit: q.timeLimit,
+          };
+
+          if (q.type === "mcq" && q.options) {
+            questionData.options = quiz.randomizeOptions
+              ? [...q.options].sort(() => Math.random() - 0.5)
+              : q.options;
+            questionData.options = questionData.options.map((option) => ({
+              text: option.text,
+              image: option.image,
+            }));
+          }
+
+          if (q.type === "coding") {
+            questionData.codingLanguage = q.codingLanguage;
+            questionData.starterCode = q.starterCode;
+          }
+
+          return questionData;
+        }),
+      };
+
+      delete quizData.creator;
+      delete quizData.stats;
+
+      return res.status(200).json({
+        success: true,
+        message: "Continuing existing quiz attempt",
+        data: {
+          attempt: {
+            _id: existingInProgressAttempt._id,
+            attemptNumber: existingInProgressAttempt.attemptNumber,
+            startedAt: existingInProgressAttempt.startedAt,
+            timeRemaining: Math.max(0, quiz.duration * 60 - Math.floor((Date.now() - new Date(existingInProgressAttempt.startedAt)) / 1000)),
+            status: existingInProgressAttempt.status,
+          },
+          quiz: quizData,
+        },
+      });
+    }
+
+    // ✅ FIXED: Get attempt count more accurately
+    const attemptCount = await QuizAttempt.countDocuments({
+      quiz: quizId,
+      student: studentId,
+      status: { $in: ["submitted", "auto_submitted"] }
+    });
+
+    console.log("📊 Student attempt count:", attemptCount, "Max allowed:", quiz.maxAttempts);
+
     const canAttemptResult = quiz.canAttempt(req.user, attemptCount);
 
     if (!canAttemptResult.canAttempt) {
@@ -50,29 +123,21 @@ const startQuizAttempt = async (req, res) => {
       });
     }
 
-
-    const existingAttempt = await QuizAttempt.findOne({
+    // ✅ FIXED: Calculate next attempt number safely
+    const allAttempts = await QuizAttempt.find({
       quiz: quizId,
       student: studentId,
-      status: "in_progress",
-    });
+    }).sort({ attemptNumber: -1 }).limit(1);
 
-    if (existingAttempt) {
-      return res.status(400).json({
-        success: false,
-        message: "You already have an in-progress attempt for this quiz",
-        data: {
-          attemptId: existingAttempt._id,
-          startedAt: existingAttempt.startedAt,
-        },
-      });
-    }
+    const nextAttemptNumber = allAttempts.length > 0 ? allAttempts[0].attemptNumber + 1 : 1;
 
+    console.log("🎯 Creating attempt number:", nextAttemptNumber);
 
+    // Create new attempt
     const attempt = await QuizAttempt.create({
       quiz: quizId,
       student: studentId,
-      attemptNumber: attemptCount + 1,
+      attemptNumber: nextAttemptNumber,
       maxScore: quiz.totalPoints || 0,
       ipAddress: req.ip,
       userAgent: req.get("User-Agent"),
@@ -95,7 +160,6 @@ const startQuizAttempt = async (req, res) => {
 
     attempt.responses = responses;
     await attempt.save();
-
 
     const quizData = {
       ...quiz.toObject(),
@@ -120,7 +184,6 @@ const startQuizAttempt = async (req, res) => {
           }));
         }
 
-
         if (q.type === "coding") {
           questionData.codingLanguage = q.codingLanguage;
           questionData.starterCode = q.starterCode;
@@ -129,7 +192,6 @@ const startQuizAttempt = async (req, res) => {
         return questionData;
       }),
     };
-
 
     delete quizData.creator;
     delete quizData.stats;
@@ -150,6 +212,15 @@ const startQuizAttempt = async (req, res) => {
     });
   } catch (error) {
     console.error("Start quiz attempt error:", error);
+    
+    // ✅ Handle duplicate key error specifically
+    if (error.code === 11000 && error.keyPattern && error.keyPattern.quiz) {
+      return res.status(409).json({
+        success: false,
+        message: "Quiz attempt already exists. Please refresh the page.",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Could not start quiz attempt",
@@ -166,8 +237,7 @@ const getQuizAttempt = async (req, res) => {
     const attempt = await QuizAttempt.findById(req.params.attemptId)
       .populate({
         path: "quiz",
-        select:
-          "title duration course questions showResults showCorrectAnswers",
+        select: "title duration course questions showResults showCorrectAnswers endTime",
         populate: [{ path: "course", select: "title" }, { path: "questions" }],
       })
       .populate("student", "name email studentId");
@@ -179,9 +249,7 @@ const getQuizAttempt = async (req, res) => {
       });
     }
 
-
-    const isStudent =
-      attempt.student._id.toString() === req.user._id.toString();
+    const isStudent = attempt.student._id.toString() === req.user._id.toString();
     const isTeacher = ["admin", "principal", "teacher"].includes(req.user.role);
 
     if (!isStudent && !isTeacher) {
@@ -191,14 +259,12 @@ const getQuizAttempt = async (req, res) => {
       });
     }
 
-
     let responseData = attempt.toObject();
 
     if (isStudent) {
       const now = new Date();
       const showResults = attempt.quiz.showResults;
       const quizEnded = now > attempt.quiz.endTime;
-
 
       if (
         showResults === "never" ||
@@ -218,7 +284,6 @@ const getQuizAttempt = async (req, res) => {
         delete responseData.grade;
         delete responseData.passed;
       }
-
 
       if (!attempt.quiz.showCorrectAnswers || !quizEnded) {
         responseData.quiz.questions = responseData.quiz.questions.map((q) => {
@@ -262,7 +327,6 @@ const submitAnswer = async (req, res) => {
       });
     }
 
-
     if (attempt.student.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -270,14 +334,12 @@ const submitAnswer = async (req, res) => {
       });
     }
 
-
     if (attempt.status !== "in_progress") {
       return res.status(400).json({
         success: false,
         message: "Quiz attempt is not in progress",
       });
     }
-
 
     const now = new Date();
     const timeLimit = new Date(
@@ -293,14 +355,12 @@ const submitAnswer = async (req, res) => {
       });
     }
 
-
     if (!questionId) {
       return res.status(400).json({
         success: false,
         message: "Question ID is required",
       });
     }
-
 
     attempt.submitResponse(questionId, answer);
 
@@ -366,9 +426,7 @@ const submitQuizAttempt = async (req, res) => {
       });
     }
 
-
     await attempt.submit(false);
-
 
     const responseData = {
       attempt: {
@@ -419,7 +477,6 @@ const getStudentAttempts = async (req, res) => {
   try {
     const { studentId } = req.params;
 
-
     const isOwnAttempts = studentId === req.user._id.toString();
     const isTeacher = ["admin", "principal", "teacher"].includes(req.user.role);
 
@@ -434,11 +491,15 @@ const getStudentAttempts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-
     let query = { student: studentId };
 
+    // ✅ Handle comma-separated status values
     if (req.query.status) {
-      query.status = req.query.status;
+      if (req.query.status.includes(',')) {
+        query.status = { $in: req.query.status.split(',') };
+      } else {
+        query.status = req.query.status;
+      }
     }
 
     if (req.query.quiz) {
@@ -448,7 +509,7 @@ const getStudentAttempts = async (req, res) => {
     const attempts = await QuizAttempt.find(query)
       .populate({
         path: "quiz",
-        select: "title course type totalPoints",
+        select: "title course type totalPoints duration passingScore",
         populate: { path: "course", select: "title" },
       })
       .sort({ startedAt: -1 })
@@ -479,60 +540,157 @@ const getStudentAttempts = async (req, res) => {
   }
 };
 
-// @desc    Get quiz attempts (for teachers)
-// @route   GET /api/quizzes/:quizId/attempts
-// @access  Private (Teacher/Admin)
+// @desc    Get quiz attempts (for teachers and general use)
+// @route   GET /api/quizzes/:quizId/attempts OR GET /api/quiz-attempts
+// @access  Private
 const getQuizAttempts = async (req, res) => {
   try {
-    const { quizId } = req.params;
-
-    const quiz = await Quiz.findById(quizId).populate("course", "instructor");
-
-    if (!quiz) {
-      return res.status(404).json({
-        success: false,
-        message: "Quiz not found",
-      });
-    }
-
-    const isCreator = quiz.creator.toString() === req.user._id.toString();
-    const isInstructor =
-      quiz.course.instructor.toString() === req.user._id.toString();
-    const isAdmin = ["admin", "principal"].includes(req.user.role);
-
-    if (!isCreator && !isInstructor && !isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: "Not authorized to view quiz attempts",
-      });
-    }
-
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    let query = { quiz: quizId };
+    // Build query
+    let query = {};
 
+    // ✅ Handle quiz filter from both route params and query
+    if (req.params.quizId) {
+      query.quiz = req.params.quizId;
+    } else if (req.query.quiz) {
+      query.quiz = req.query.quiz;
+    }
+
+    // ✅ Handle status filter (including comma-separated)
     if (req.query.status) {
-      query.status = req.query.status;
+      if (req.query.status.includes(',')) {
+        query.status = { $in: req.query.status.split(',') };
+      } else {
+        query.status = req.query.status;
+      }
+    }
+
+    // ✅ Handle student filter
+    if (req.query.student) {
+      query.student = req.query.student;
+    }
+
+    console.log("🔍 Quiz attempts query:", query);
+
+    // ✅ FIXED: Authorization check with proper error handling
+    try {
+      if (req.user.role === 'teacher') {
+        // Teachers can only see attempts for their quizzes
+        if (query.quiz) {
+          const quiz = await Quiz.findById(query.quiz).populate('course', 'instructor assistantInstructors');
+          if (!quiz) {
+            return res.status(404).json({
+              success: false,
+              message: 'Quiz not found',
+            });
+          }
+
+          const isInstructor = quiz.course.instructor.toString() === req.user._id.toString();
+          const isAssistant = quiz.course.assistantInstructors && quiz.course.assistantInstructors.includes(req.user._id);
+
+          if (!isInstructor && !isAssistant) {
+            return res.status(403).json({
+              success: false,
+              message: 'Not authorized to view these quiz attempts',
+            });
+          }
+        } else {
+          // ✅ FIXED: Safer teacher course filtering
+          try {
+            const teacherCourses = await Course.find({
+              $or: [
+                { instructor: req.user._id },
+                { assistantInstructors: req.user._id }
+              ]
+            }).select('_id');
+            
+            const courseIds = teacherCourses.map(c => c._id);
+            
+            if (courseIds.length === 0) {
+              // Teacher has no courses
+              return res.json({
+                success: true,
+                data: {
+                  attempts: [],
+                  pagination: { page, limit, total: 0, pages: 0 },
+                },
+              });
+            }
+            
+            const teacherQuizzes = await Quiz.find({
+              course: { $in: courseIds }
+            }).select('_id');
+            
+            const quizIds = teacherQuizzes.map(q => q._id);
+            
+            if (quizIds.length === 0) {
+              // Teacher has no quizzes
+              return res.json({
+                success: true,
+                data: {
+                  attempts: [],
+                  pagination: { page, limit, total: 0, pages: 0 },
+                },
+              });
+            }
+            
+            query.quiz = { $in: quizIds };
+          } catch (courseError) {
+            console.error("Error fetching teacher courses:", courseError);
+            return res.status(500).json({
+              success: false,
+              message: 'Error checking teacher authorization',
+            });
+          }
+        }
+      } else if (req.user.role === 'student') {
+        // Students can only see their own attempts
+        query.student = req.user._id;
+      }
+      // Admins and principals can see all
+    } catch (authError) {
+      console.error("Authorization error:", authError);
+      return res.status(500).json({
+        success: false,
+        message: 'Authorization check failed',
+      });
     }
 
     const attempts = await QuizAttempt.find(query)
-      .populate("student", "name email studentId")
-      .sort({ submittedAt: -1, startedAt: -1 })
+      .populate({
+        path: 'quiz',
+        select: 'title course duration totalPoints passingScore',
+        populate: {
+          path: 'course',
+          select: 'title subject'
+        }
+      })
+      .populate('student', 'name email studentId')
+      .populate('gradedBy', 'name email')
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
     const total = await QuizAttempt.countDocuments(query);
 
-    const submittedAttempts = attempts.filter((a) =>
-      ["submitted", "auto_submitted"].includes(a.status)
+    console.log("✅ Found quiz attempts:", attempts.length);
+
+    // ✅ Calculate summary statistics
+    const submittedAttempts = attempts.filter(a => 
+      ['submitted', 'auto_submitted'].includes(a.status)
     );
-    const avgScore =
-      submittedAttempts.length > 0
-        ? submittedAttempts.reduce((sum, a) => sum + a.percentage, 0) /
-          submittedAttempts.length
-        : 0;
+    
+    const summary = {
+      totalAttempts: total,
+      submittedAttempts: submittedAttempts.length,
+      averageScore: submittedAttempts.length > 0 
+        ? Math.round(submittedAttempts.reduce((sum, a) => sum + (a.percentage || 0), 0) / submittedAttempts.length)
+        : 0,
+      needsManualGrading: submittedAttempts.filter(a => a.needsManualGrading).length,
+    };
 
     res.json({
       success: true,
@@ -544,14 +702,7 @@ const getQuizAttempts = async (req, res) => {
           total,
           pages: Math.ceil(total / limit),
         },
-        summary: {
-          totalAttempts: total,
-          submittedAttempts: submittedAttempts.length,
-          averageScore: Math.round(avgScore),
-          needsManualGrading: submittedAttempts.filter(
-            (a) => a.needsManualGrading
-          ).length,
-        },
+        summary,
       },
     });
   } catch (error) {
@@ -583,10 +734,8 @@ const gradeQuizAttempt = async (req, res) => {
       });
     }
 
-    const isCreator =
-      attempt.quiz.creator.toString() === req.user._id.toString();
-    const isInstructor =
-      attempt.quiz.course.instructor.toString() === req.user._id.toString();
+    const isCreator = attempt.quiz.creator.toString() === req.user._id.toString();
+    const isInstructor = attempt.quiz.course.instructor.toString() === req.user._id.toString();
     const isAdmin = ["admin", "principal"].includes(req.user.role);
 
     if (!isCreator && !isInstructor && !isAdmin) {
@@ -610,13 +759,11 @@ const gradeQuizAttempt = async (req, res) => {
             attempt.responses[responseIndex].feedback = responseUpdate.feedback;
           }
           if (responseUpdate.isCorrect !== undefined) {
-            attempt.responses[responseIndex].isCorrect =
-              responseUpdate.isCorrect;
+            attempt.responses[responseIndex].isCorrect = responseUpdate.isCorrect;
           }
         }
       });
     }
-
 
     if (totalScore !== undefined) {
       attempt.totalScore = totalScore;
@@ -635,14 +782,12 @@ const gradeQuizAttempt = async (req, res) => {
           : 0;
     }
 
-
     attempt.grade = grade || attempt.grade;
     attempt.graderComments = comments || attempt.graderComments;
     attempt.gradedBy = req.user._id;
     attempt.gradedAt = new Date();
     attempt.isGraded = true;
     attempt.needsManualGrading = false;
-
 
     await attempt.populate("quiz", "passingScore");
     if (attempt.quiz.passingScore) {
