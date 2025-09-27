@@ -306,12 +306,19 @@ questionSchema.methods.checkAnswer = function (studentAnswer) {
 };
 
 questionSchema.methods.updateStats = function (isCorrect) {
+  if (!this.stats) {
+    this.stats = {
+      timesUsed: 0,
+      totalAttempts: 0,
+      correctAttempts: 0,
+      averageScore: 0,
+    };
+  }
+
   this.stats.totalAttempts += 1;
   if (isCorrect) {
     this.stats.correctAttempts += 1;
   }
-  this.stats.timesUsed += 1;
-
 
   this.stats.averageScore =
     (this.stats.correctAttempts / this.stats.totalAttempts) * 100;

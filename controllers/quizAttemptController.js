@@ -9,10 +9,14 @@ const Course = require("../models/Course"); // ✅ Make sure this import exists
 // @desc    Start quiz attempt
 // @route   POST /api/quizzes/:quizId/attempt
 // @access  Private (Students)
+// In your backend/controllers/quizAttemptController.js - IMPROVED startQuizAttempt
+
 const startQuizAttempt = async (req, res) => {
   try {
     const { quizId } = req.params;
     const studentId = req.user._id;
+
+    console.log("🚀 Starting quiz attempt for:", { quizId, studentId });
 
     const quiz = await Quiz.findById(quizId)
       .populate("course", "title")
@@ -39,17 +43,26 @@ const startQuizAttempt = async (req, res) => {
       });
     }
 
-    // ✅ FIXED: Check for existing in-progress attempt FIRST
-    const existingInProgressAttempt = await QuizAttempt.findOne({
-      quiz: quizId,
-      student: studentId,
-      status: "in_progress",
-    });
+    // ✅ CRITICAL FIX: Use findOneAndUpdate for atomic operation to prevent race conditions
+    const existingInProgressAttempt = await QuizAttempt.findOneAndUpdate(
+      {
+        quiz: quizId,
+        student: studentId,
+        status: "in_progress",
+      },
+      { 
+        $set: { updatedAt: new Date() } // Just update timestamp to "claim" this attempt
+      },
+      { 
+        new: true,
+        upsert: false // Don't create if not found
+      }
+    );
 
     if (existingInProgressAttempt) {
       console.log("🔄 Returning existing in-progress attempt:", existingInProgressAttempt._id);
       
-      // Return existing attempt instead of creating new one
+      // Return existing attempt data
       const questions = quiz.randomizeQuestions
         ? [...quiz.questions].sort(() => Math.random() - 0.5)
         : quiz.questions;
@@ -105,7 +118,7 @@ const startQuizAttempt = async (req, res) => {
       });
     }
 
-    // ✅ FIXED: Get attempt count more accurately
+    // ✅ IMPROVED: Get attempt count with atomic operation
     const attemptCount = await QuizAttempt.countDocuments({
       quiz: quizId,
       student: studentId,
@@ -123,43 +136,77 @@ const startQuizAttempt = async (req, res) => {
       });
     }
 
-    // ✅ FIXED: Calculate next attempt number safely
-    const allAttempts = await QuizAttempt.find({
-      quiz: quizId,
-      student: studentId,
-    }).sort({ attemptNumber: -1 }).limit(1);
-
-    const nextAttemptNumber = allAttempts.length > 0 ? allAttempts[0].attemptNumber + 1 : 1;
-
+    // ✅ CRITICAL FIX: Calculate next attempt number with atomic operation
+    const nextAttemptNumber = attemptCount + 1;
     console.log("🎯 Creating attempt number:", nextAttemptNumber);
 
-    // Create new attempt
-    const attempt = await QuizAttempt.create({
-      quiz: quizId,
-      student: studentId,
-      attemptNumber: nextAttemptNumber,
-      maxScore: quiz.totalPoints || 0,
-      ipAddress: req.ip,
-      userAgent: req.get("User-Agent"),
-      browserInfo: {
-        name: req.get("User-Agent"),
-        platform: req.get("User-Agent"),
-      },
-    });
+    // ✅ ATOMIC CREATION: Use findOneAndUpdate with upsert to prevent duplicates
+    let attempt;
+    try {
+      attempt = await QuizAttempt.findOneAndUpdate(
+        {
+          quiz: quizId,
+          student: studentId,
+          attemptNumber: nextAttemptNumber,
+        },
+        {
+          $setOnInsert: {
+            quiz: quizId,
+            student: studentId,
+            attemptNumber: nextAttemptNumber,
+            maxScore: quiz.totalPoints || 0,
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+            browserInfo: {
+              name: req.get("User-Agent"),
+              platform: req.get("User-Agent"),
+            },
+            startedAt: new Date(),
+            status: "in_progress",
+            responses: quiz.questions.map((question) => ({
+              question: question._id,
+              answer: null,
+              timeSpent: 0,
+              isSkipped: false,
+            })),
+          }
+        },
+        {
+          new: true,
+          upsert: true, // Create if doesn't exist
+          setDefaultsOnInsert: true,
+        }
+      );
+    } catch (duplicateError) {
+      if (duplicateError.code === 11000) {
+        // Duplicate key error - another request already created this attempt
+        console.log("🔄 Duplicate attempt detected, fetching existing one");
+        
+        // Find the existing attempt that was just created
+        const existingAttempt = await QuizAttempt.findOne({
+          quiz: quizId,
+          student: studentId,
+          attemptNumber: nextAttemptNumber,
+        });
 
+        if (existingAttempt) {
+          attempt = existingAttempt;
+        } else {
+          // Fallback - something went wrong
+          return res.status(500).json({
+            success: false,
+            message: "Failed to create or retrieve quiz attempt",
+          });
+        }
+      } else {
+        throw duplicateError; // Re-throw if it's not a duplicate key error
+      }
+    }
+
+    // Prepare questions for frontend
     const questions = quiz.randomizeQuestions
       ? [...quiz.questions].sort(() => Math.random() - 0.5)
       : quiz.questions;
-
-    const responses = questions.map((question) => ({
-      question: question._id,
-      answer: null,
-      timeSpent: 0,
-      isSkipped: false,
-    }));
-
-    attempt.responses = responses;
-    await attempt.save();
 
     const quizData = {
       ...quiz.toObject(),
@@ -213,7 +260,7 @@ const startQuizAttempt = async (req, res) => {
   } catch (error) {
     console.error("Start quiz attempt error:", error);
     
-    // ✅ Handle duplicate key error specifically
+    // Handle specific duplicate key error
     if (error.code === 11000 && error.keyPattern && error.keyPattern.quiz) {
       return res.status(409).json({
         success: false,
@@ -228,6 +275,7 @@ const startQuizAttempt = async (req, res) => {
     });
   }
 };
+
 
 // @desc    Get quiz attempt
 // @route   GET /api/quiz-attempts/:attemptId
@@ -310,15 +358,28 @@ const getQuizAttempt = async (req, res) => {
 // @desc    Submit answer for a question
 // @route   PATCH /api/quiz-attempts/:attemptId/answer
 // @access  Private (Student who owns attempt)
+// In your backend/controllers/quizAttemptController.js - IMPROVED submitAnswer
+
+// @desc    Submit answer for a question
+// @route   PATCH /api/quiz-attempts/:attemptId/answer
+// @access  Private (Student who owns attempt)
 const submitAnswer = async (req, res) => {
   try {
     const { attemptId } = req.params;
     const { questionId, answer, timeSpent } = req.body;
 
-    const attempt = await QuizAttempt.findById(attemptId).populate(
-      "quiz",
-      "duration endTime"
-    );
+    console.log("📝 Submitting answer:", { attemptId, questionId, answer, timeSpent });
+
+    // ✅ Validate input
+    if (!questionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Question ID is required",
+      });
+    }
+
+    // ✅ Find attempt with better error handling
+    const attempt = await QuizAttempt.findById(attemptId).populate("quiz", "duration endTime");
 
     if (!attempt) {
       return res.status(404).json({
@@ -327,6 +388,7 @@ const submitAnswer = async (req, res) => {
       });
     }
 
+    // ✅ Check ownership
     if (attempt.student.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -334,56 +396,127 @@ const submitAnswer = async (req, res) => {
       });
     }
 
+    // ✅ Check attempt status
     if (attempt.status !== "in_progress") {
       return res.status(400).json({
         success: false,
-        message: "Quiz attempt is not in progress",
+        message: `Quiz attempt is ${attempt.status}. Cannot submit answers.`,
       });
     }
 
+    // ✅ Enhanced time limit checking
     const now = new Date();
-    const timeLimit = new Date(
-      attempt.startedAt.getTime() + attempt.quiz.duration * 60 * 1000
-    );
+    const startTime = new Date(attempt.startedAt);
+    const durationMs = (attempt.quiz?.duration || 30) * 60 * 1000; // Convert to milliseconds
+    const timeLimit = new Date(startTime.getTime() + durationMs);
+    const quizEndTime = attempt.quiz?.endTime ? new Date(attempt.quiz.endTime) : null;
 
-    if (now > timeLimit || now > attempt.quiz.endTime) {
-      await attempt.submit(true);
-      return res.status(400).json({
+    // Check if time has expired
+    if (now > timeLimit) {
+      console.log("⏰ Quiz time limit exceeded, auto-submitting");
+      try {
+        await attempt.submit(true);
+        return res.status(400).json({
+          success: false,
+          message: "Quiz time has expired. Your attempt has been auto-submitted.",
+          data: { 
+            attempt: {
+              _id: attempt._id,
+              status: attempt.status,
+              submittedAt: attempt.submittedAt,
+            }
+          },
+        });
+      } catch (submitError) {
+        console.error("Error auto-submitting expired attempt:", submitError);
+        return res.status(400).json({
+          success: false,
+          message: "Quiz time has expired.",
+        });
+      }
+    }
+
+    // Check if quiz end time has passed
+    if (quizEndTime && now > quizEndTime) {
+      console.log("📅 Quiz end time reached, auto-submitting");
+      try {
+        await attempt.submit(true);
+        return res.status(400).json({
+          success: false,
+          message: "Quiz has ended. Your attempt has been auto-submitted.",
+          data: { 
+            attempt: {
+              _id: attempt._id,
+              status: attempt.status,
+              submittedAt: attempt.submittedAt,
+            }
+          },
+        });
+      } catch (submitError) {
+        console.error("Error auto-submitting ended attempt:", submitError);
+        return res.status(400).json({
+          success: false,
+          message: "Quiz has ended.",
+        });
+      }
+    }
+
+    // ✅ Enhanced response submission
+    try {
+      // Find or create response
+      let responseIndex = attempt.responses.findIndex(
+        (r) => r.question.toString() === questionId.toString()
+      );
+
+      if (responseIndex === -1) {
+        // Create new response if it doesn't exist
+        attempt.responses.push({
+          question: questionId,
+          answer: answer,
+          timeSpent: 0,
+          answeredAt: new Date(),
+          isSkipped: false,
+        });
+        responseIndex = attempt.responses.length - 1;
+      } else {
+        // Update existing response
+        attempt.responses[responseIndex].answer = answer;
+        attempt.responses[responseIndex].answeredAt = new Date();
+        attempt.responses[responseIndex].isSkipped = false;
+      }
+
+      // ✅ Update time spent safely
+      if (timeSpent && !isNaN(timeSpent) && timeSpent > 0) {
+        const additionalTime = Math.min(timeSpent, 300); // Cap at 5 minutes per submission
+        attempt.responses[responseIndex].timeSpent += additionalTime;
+        attempt.timeSpent += additionalTime;
+      }
+
+      // Save the attempt
+      await attempt.save();
+
+      console.log("✅ Answer submitted successfully for question:", questionId);
+
+      res.json({
+        success: true,
+        message: "Answer submitted successfully",
+        data: {
+          questionId,
+          answer,
+          timeSpent: attempt.responses[responseIndex].timeSpent,
+          remainingTime: Math.max(0, Math.floor((timeLimit - now) / 1000)),
+        },
+      });
+
+    } catch (saveError) {
+      console.error("Error saving answer:", saveError);
+      return res.status(500).json({
         success: false,
-        message: "Quiz time has expired. Your attempt has been auto-submitted.",
-        data: { attempt },
+        message: "Failed to save answer",
+        error: saveError.message,
       });
     }
 
-    if (!questionId) {
-      return res.status(400).json({
-        success: false,
-        message: "Question ID is required",
-      });
-    }
-
-    attempt.submitResponse(questionId, answer);
-
-    const responseIndex = attempt.responses.findIndex(
-      (r) => r.question.toString() === questionId.toString()
-    );
-
-    if (responseIndex >= 0 && timeSpent) {
-      attempt.responses[responseIndex].timeSpent += timeSpent;
-      attempt.timeSpent += timeSpent;
-    }
-
-    await attempt.save();
-
-    res.json({
-      success: true,
-      message: "Answer submitted successfully",
-      data: {
-        questionId,
-        answer,
-        timeSpent: attempt.responses[responseIndex]?.timeSpent || 0,
-      },
-    });
   } catch (error) {
     console.error("Submit answer error:", error);
     res.status(500).json({

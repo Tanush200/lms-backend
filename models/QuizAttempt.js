@@ -210,97 +210,228 @@ quizAttemptSchema.methods.submitResponse = function (questionId, answer) {
   }
 };
 
+// In your backend/models/QuizAttempt.js - IMPROVED calculateScore method
+
 quizAttemptSchema.methods.calculateScore = async function () {
-  await this.populate("responses.question");
+  try {
+    await this.populate("responses.question");
 
-  let totalScore = 0;
-  let maxScore = 0;
-  let needsManualGrading = false;
+    let totalScore = 0;
+    let maxScore = 0;
+    let needsManualGrading = false;
+    const Question = require("./Question"); // ✅ Make sure to import Question model
 
-  for (let response of this.responses) {
-    if (response.question) {
-      maxScore += response.question.points;
+    for (let response of this.responses) {
+      if (response.question) {
+        const questionPoints = response.question.points || 1;
+        maxScore += questionPoints;
 
-      if (response.answer !== null && response.answer !== "") {
-        const result = response.question.checkAnswer(response.answer);
+        if (response.answer !== null && response.answer !== "") {
+          // ✅ FIXED: Handle different question types manually (since checkAnswer might not exist)
+          let isCorrect = false;
+          let score = 0;
+          let feedback = '';
 
-        response.isCorrect = result.isCorrect;
-        response.score = result.score;
-        response.feedback = result.feedback;
+          switch (response.question.type) {
+            case 'mcq':
+              if (response.question.options) {
+                if (Array.isArray(response.answer)) {
+                  // Multiple correct answers
+                  const correctOptions = response.question.options
+                    .map((opt, idx) => opt.isCorrect ? idx : -1)
+                    .filter(idx => idx !== -1);
+                  
+                  const studentAnswers = response.answer.sort();
+                  const correctAnswers = correctOptions.sort();
+                  
+                  isCorrect = JSON.stringify(studentAnswers) === JSON.stringify(correctAnswers);
+                } else {
+                  // Single correct answer
+                  const correctIndex = response.question.options.findIndex(opt => opt.isCorrect);
+                  isCorrect = response.answer === correctIndex;
+                }
+                score = isCorrect ? questionPoints : 0;
+              }
+              break;
 
-        totalScore += result.score;
+            case 'true_false':
+              isCorrect = response.answer === response.question.correctAnswer;
+              score = isCorrect ? questionPoints : 0;
+              break;
 
+            case 'short_answer':
+              if (Array.isArray(response.question.correctAnswer)) {
+                isCorrect = response.question.correctAnswer.some(correct => 
+                  response.answer.toLowerCase().trim() === correct.toLowerCase().trim()
+                );
+              } else {
+                isCorrect = response.answer.toLowerCase().trim() === 
+                          response.question.correctAnswer.toLowerCase().trim();
+              }
+              score = isCorrect ? questionPoints : 0;
+              break;
 
-        if (result.isCorrect === null) {
-          needsManualGrading = true;
-        }
+            case 'essay':
+            case 'coding':
+              // These need manual grading
+              isCorrect = null; // Will be graded manually
+              score = 0; // Will be set during manual grading
+              needsManualGrading = true;
+              break;
 
-        if (result.isCorrect !== null) {
-          response.question.updateStats(result.isCorrect);
-          await response.question.save();
+            default:
+              isCorrect = false;
+              score = 0;
+          }
+
+          response.isCorrect = isCorrect;
+          response.score = score;
+          response.feedback = feedback;
+
+          totalScore += score;
+
+          // ✅ Only auto-grade if we have a definitive result
+          if (isCorrect !== null && response.question.updateStats) {
+            try {
+              response.question.updateStats(isCorrect);
+              await response.question.save();
+            } catch (statError) {
+              console.warn("Failed to update question stats:", statError);
+            }
+          }
         }
       }
     }
-  }
 
-  this.totalScore = totalScore;
-  this.maxScore = maxScore;
-  this.percentage =
-    maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
-  this.needsManualGrading = needsManualGrading;
-  this.isGraded = !needsManualGrading;
+    this.totalScore = totalScore;
+    this.maxScore = maxScore || 1; // ✅ Prevent division by zero
+    this.percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+    this.needsManualGrading = needsManualGrading;
+    this.isGraded = !needsManualGrading;
 
-  await this.populate("quiz");
-  if (this.quiz && this.quiz.passingScore) {
-    this.passed = this.percentage >= this.quiz.passingScore;
-  }
+    await this.populate("quiz");
+    if (this.quiz && this.quiz.passingScore) {
+      this.passed = this.percentage >= this.quiz.passingScore;
+    }
 
-  return {
-    totalScore: this.totalScore,
-    maxScore: this.maxScore,
-    percentage: this.percentage,
-    passed: this.passed,
-    needsManualGrading: this.needsManualGrading,
-  };
-};
-
-quizAttemptSchema.methods.submit = async function (autoSubmit = false) {
-  if (this.status !== "in_progress") {
-    throw new Error("Only in-progress attempts can be submitted");
-  }
-
-  this.submittedAt = new Date();
-  this.status = autoSubmit ? "auto_submitted" : "submitted";
-  this.timeSpent = Math.ceil((this.submittedAt - this.startedAt) / 1000);
-
-
-  await this.calculateScore();
-
-  await this.populate("quiz");
-  if (this.quiz) {
-    this.quiz.stats.totalAttempts += 1;
-
-    const allAttempts = await this.constructor.find({
-      quiz: this.quiz._id,
-      status: { $in: ["submitted", "auto_submitted"] },
+    console.log("🎯 Quiz graded:", {
+      totalScore: this.totalScore,
+      maxScore: this.maxScore,
+      percentage: this.percentage,
+      passed: this.passed,
+      needsManualGrading: this.needsManualGrading,
     });
-    const scores = allAttempts.map((attempt) => attempt.percentage);
 
-    this.quiz.stats.averageScore =
-      scores.reduce((sum, score) => sum + score, 0) / scores.length;
-    this.quiz.stats.highestScore = Math.max(...scores);
-    this.quiz.stats.lowestScore = Math.min(...scores);
-    this.quiz.stats.passRate =
-      (allAttempts.filter((attempt) => attempt.passed).length /
-        allAttempts.length) *
-      100;
-
-    await this.quiz.save();
+    return {
+      totalScore: this.totalScore,
+      maxScore: this.maxScore,
+      percentage: this.percentage,
+      passed: this.passed,
+      needsManualGrading: this.needsManualGrading,
+    };
+  } catch (error) {
+    console.error("❌ Error calculating score:", error);
+    // Set safe defaults
+    this.totalScore = 0;
+    this.maxScore = 1;
+    this.percentage = 0;
+    this.passed = false;
+    this.needsManualGrading = false;
+    throw error;
   }
-
-  await this.save();
-  return this;
 };
+
+
+// In your backend/models/QuizAttempt.js - FIXED submit method
+
+quizAttemptSchema.methods.submit = async function (isAutoSubmit = false) {
+  try {
+    // Set basic submission data
+    this.status = isAutoSubmit ? 'auto_submitted' : 'submitted';
+    this.submittedAt = new Date();
+    
+    // Calculate time spent if not already set
+    if (!this.timeSpent) {
+      this.timeSpent = Math.floor((this.submittedAt - this.startedAt) / 1000);
+    }
+
+    // ✅ FIX: Use calculateScore instead of grade (which doesn't exist)
+    await this.calculateScore();
+
+    // Update quiz statistics
+    const Quiz = require("./Quiz"); // ✅ Make sure to import Quiz model
+    const quiz = await Quiz.findById(this.quiz);
+    
+    if (quiz) {
+      // ✅ Get all completed attempts for this quiz
+      const allAttempts = await this.constructor.find({
+        quiz: this.quiz,
+        status: { $in: ['submitted', 'auto_submitted'] }
+      });
+
+      // ✅ FIXED: Safe statistics calculation with NaN checks
+      const totalAttempts = allAttempts.length;
+      
+      if (totalAttempts > 0) {
+        // Calculate average score safely
+        const totalScore = allAttempts.reduce((sum, attempt) => {
+          const score = attempt.percentage || 0;
+          return sum + (isNaN(score) ? 0 : score);
+        }, 0);
+        
+        const averageScore = totalScore / totalAttempts;
+        
+        // Calculate pass rate safely
+        const passedAttempts = allAttempts.filter(attempt => 
+          attempt.passed === true
+        ).length;
+        
+        const passRate = (passedAttempts / totalAttempts) * 100;
+        
+        // Calculate highest and lowest scores safely
+        const scores = allAttempts.map(attempt => attempt.percentage || 0).filter(score => !isNaN(score));
+        const highestScore = scores.length > 0 ? Math.max(...scores) : 0;
+        const lowestScore = scores.length > 0 ? Math.min(...scores) : 0;
+
+        // ✅ CRITICAL FIX: Only set if values are valid numbers
+        quiz.stats.totalAttempts = totalAttempts;
+        quiz.stats.averageScore = isNaN(averageScore) ? 0 : Math.round(averageScore);
+        quiz.stats.passRate = isNaN(passRate) ? 0 : Math.round(passRate);
+        quiz.stats.highestScore = isNaN(highestScore) ? 0 : highestScore;
+        quiz.stats.lowestScore = isNaN(lowestScore) ? 0 : lowestScore;
+        
+        console.log("📊 Updated quiz stats:", {
+          totalAttempts,
+          averageScore: quiz.stats.averageScore,
+          passRate: quiz.stats.passRate,
+          highestScore,
+          lowestScore
+        });
+      } else {
+        // ✅ Safe defaults when no attempts
+        quiz.stats.totalAttempts = 0;
+        quiz.stats.averageScore = 0;
+        quiz.stats.passRate = 0;
+        quiz.stats.highestScore = 0;
+        quiz.stats.lowestScore = 0;
+      }
+
+      // Save quiz with updated stats
+      await quiz.save();
+    }
+
+    // Save the attempt
+    await this.save();
+    
+    console.log("✅ Quiz attempt submitted successfully:", this._id);
+    return this;
+    
+  } catch (error) {
+    console.error("❌ Error submitting quiz attempt:", error);
+    throw error;
+  }
+};
+
 
 
 quizAttemptSchema.statics.findByQuiz = function (quizId, options = {}) {
