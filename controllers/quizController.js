@@ -137,47 +137,172 @@ const createQuiz = async (req, res) => {
 // @desc    Get all quizzes
 // @route   GET /api/quizzes
 // @access  Private
+// const getQuizzes = async (req, res) => {
+//   try {
+//     const page = parseInt(req.query.page) || 1;
+//     const limit = parseInt(req.query.limit) || 10;
+//     const skip = (page - 1) * limit;
+
+
+//     let query = {};
+
+//     if (req.query.course) {
+//       query.course = req.query.course;
+//     }
+
+
+//     if (req.query.status) {
+//       query.status = req.query.status;
+//     }
+
+
+//     if (req.query.type) {
+//       query.type = req.query.type;
+//     }
+
+
+//     if (req.user.role === "student") {
+//       const now = new Date();
+//       query.status = "published";
+//       query.startTime = { $lte: now };
+//       query.endTime = { $gte: now };
+
+//       const enrollments = await Enrollment.find({
+//         student: req.user._id,
+//         status: { $in: ["active", "completed"] },
+//       }).select("course");
+
+//       const enrolledCourses = enrollments.map(
+//         (enrollment) => enrollment.course
+//       );
+//       query.course = { $in: enrolledCourses };
+//     }
+
+
+//     if (req.query.search) {
+//       query.$or = [
+//         { title: { $regex: req.query.search, $options: "i" } },
+//         { description: { $regex: req.query.search, $options: "i" } },
+//       ];
+//     }
+
+//     const quizzes = await Quiz.find(query)
+//       .populate("course", "title subject")
+//       .populate("creator", "name email")
+//       .populate("questions", "type points")
+//       .sort({ createdAt: -1 })
+//       .skip(skip)
+//       .limit(limit);
+
+//     const total = await Quiz.countDocuments(query);
+
+
+//     if (req.user.role === "student") {
+//       for (let quiz of quizzes) {
+//         const attemptCount = await QuizAttempt.getStudentAttemptCount(
+//           quiz._id,
+//           req.user._id
+//         );
+//         const lastAttempt = await QuizAttempt.findOne({
+//           quiz: quiz._id,
+//           student: req.user._id,
+//         }).sort({ attemptNumber: -1 });
+
+//         quiz._doc.attemptCount = attemptCount;
+//         quiz._doc.lastAttempt = lastAttempt;
+//         quiz._doc.canAttempt = quiz.canAttempt(req.user, attemptCount);
+//       }
+//     }
+
+//     res.json({
+//       success: true,
+//       data: {
+//         quizzes,
+//         pagination: {
+//           page,
+//           limit,
+//           total,
+//           pages: Math.ceil(total / limit),
+//         },
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Get quizzes error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not get quizzes",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
 const getQuizzes = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    let query = { isActive: true };
 
-    let query = {};
-
-    if (req.query.course) {
-      query.course = req.query.course;
-    }
-
-
-    if (req.query.status) {
-      query.status = req.query.status;
-    }
-
-
-    if (req.query.type) {
-      query.type = req.query.type;
-    }
-
-
+    // ✅ CRITICAL FIX: Role-based filtering
     if (req.user.role === "student") {
-      const now = new Date();
-      query.status = "published";
-      query.startTime = { $lte: now };
-      query.endTime = { $gte: now };
-
+      // Students only see published quizzes from courses they're enrolled in
       const enrollments = await Enrollment.find({
         student: req.user._id,
         status: { $in: ["active", "completed"] },
       }).select("course");
 
-      const enrolledCourses = enrollments.map(
-        (enrollment) => enrollment.course
-      );
+      const enrolledCourses = enrollments.map((e) => e.course);
+
       query.course = { $in: enrolledCourses };
+      query.status = "published";
+
+      const now = new Date();
+      query.startTime = { $lte: now };
+      query.endTime = { $gte: now };
+    } else if (req.user.role === "teacher") {
+      // ✅ FIXED: Teachers only see quizzes from their own courses
+      const teacherCourses = await Course.find({
+        $or: [
+          { instructor: req.user._id },
+          { assistantInstructors: req.user._id },
+        ],
+      }).select("_id");
+
+      const courseIds = teacherCourses.map((c) => c._id);
+
+      // Only show quizzes from courses where this teacher is instructor/assistant
+      query.course = { $in: courseIds };
+
+      console.log("🔒 Teacher quiz filter:", {
+        teacherId: req.user._id,
+        teacherEmail: req.user.email,
+        courseIds: courseIds,
+        query,
+      });
+    } else if (["admin", "principal"].includes(req.user.role)) {
+      // Admins can see all quizzes - no additional filtering
+    } else {
+      // Unknown role - no access
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
     }
 
+    // Apply other filters
+    if (req.query.course) {
+      query.course = req.query.course;
+    }
+
+    if (req.query.status) {
+      query.status = req.query.status;
+    }
+
+    if (req.query.creator) {
+      query.creator = req.query.creator;
+    }
 
     if (req.query.search) {
       query.$or = [
@@ -187,32 +312,20 @@ const getQuizzes = async (req, res) => {
     }
 
     const quizzes = await Quiz.find(query)
-      .populate("course", "title subject")
+      .populate("course", "title subject instructor")
       .populate("creator", "name email")
-      .populate("questions", "type points")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
     const total = await Quiz.countDocuments(query);
 
-
-    if (req.user.role === "student") {
-      for (let quiz of quizzes) {
-        const attemptCount = await QuizAttempt.getStudentAttemptCount(
-          quiz._id,
-          req.user._id
-        );
-        const lastAttempt = await QuizAttempt.findOne({
-          quiz: quiz._id,
-          student: req.user._id,
-        }).sort({ attemptNumber: -1 });
-
-        quiz._doc.attemptCount = attemptCount;
-        quiz._doc.lastAttempt = lastAttempt;
-        quiz._doc.canAttempt = quiz.canAttempt(req.user, attemptCount);
-      }
-    }
+    console.log("📊 Quiz fetch result:", {
+      user: req.user.email,
+      role: req.user.role,
+      totalQuizzes: total,
+      returnedQuizzes: quizzes.length,
+    });
 
     res.json({
       success: true,
@@ -235,7 +348,6 @@ const getQuizzes = async (req, res) => {
     });
   }
 };
-
 // @desc    Get single quiz
 // @route   GET /api/quizzes/:id
 // @access  Private
