@@ -289,18 +289,67 @@ class Judge0Service {
    * Format test result for frontend
    */
   formatTestResult(judge0Result, input, expectedOutput) {
-    const stdout = judge0Result.stdout
-      ? Buffer.from(judge0Result.stdout, "base64").toString()
-      : "";
-    const stderr = judge0Result.stderr
-      ? Buffer.from(judge0Result.stderr, "base64").toString()
-      : "";
-    const compileOutput = judge0Result.compile_output
-      ? Buffer.from(judge0Result.compile_output, "base64").toString()
-      : "";
+    // Safely decode base64 outputs
+    let stdout = "";
+    let stderr = "";
+    let compileOutput = "";
+    
+    try {
+      stdout = judge0Result.stdout
+        ? Buffer.from(judge0Result.stdout, "base64").toString()
+        : "";
+    } catch (e) {
+      console.error("Error decoding stdout:", e);
+      stdout = "";
+    }
+    
+    try {
+      stderr = judge0Result.stderr
+        ? Buffer.from(judge0Result.stderr, "base64").toString()
+        : "";
+    } catch (e) {
+      console.error("Error decoding stderr:", e);
+      stderr = "";
+    }
+    
+    try {
+      compileOutput = judge0Result.compile_output
+        ? Buffer.from(judge0Result.compile_output, "base64").toString()
+        : "";
+    } catch (e) {
+      console.error("Error decoding compile output:", e);
+      compileOutput = "";
+    }
+
+    // Normalize outputs for comparison
+    const normalizeOutput = (output) => {
+      if (!output) return "";
+      return output
+        .trim()
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/\n+/g, '\n')
+        .trim();
+    };
+
+    const normalizedActual = normalizeOutput(stdout);
+    const normalizedExpected = normalizeOutput(expectedOutput);
+    
+    // Determine if the test passed based on Judge0 status and output comparison
+    let status = this.getStatusFromJudge0(judge0Result.status.id);
+    
+    // If Judge0 says accepted (status 3), double-check the output
+    if (judge0Result.status.id === 3) {
+      status = normalizedActual === normalizedExpected ? "accepted" : "wrong_answer";
+    }
+
+    console.log(`Judge0 Result - Status: ${judge0Result.status.id} (${judge0Result.status.description})`);
+    console.log(`Expected: "${normalizedExpected}"`);
+    console.log(`Actual: "${normalizedActual}"`);
+    console.log(`Final Status: ${status}`);
 
     return {
-      status: this.getStatusFromJudge0(judge0Result.status.id),
+      status: status,
       input: input,
       expectedOutput: expectedOutput,
       actualOutput: stdout.trim(),
@@ -308,6 +357,8 @@ class Judge0Service {
       memoryUsed: parseInt(judge0Result.memory) || 0,
       errorMessage: stderr || compileOutput || "",
       judge0Status: judge0Result.status,
+      normalizedActual: normalizedActual,
+      normalizedExpected: normalizedExpected,
     };
   }
 

@@ -455,26 +455,51 @@ const getProblemLeaderboard = async (req, res) => {
 // @access  Private (Submission owner)
 const getSubmissionStatus = async (req, res) => {
   try {
-    const submission = await CodeSubmission.findById(
-      req.params.submissionId
-    ).select("status passedTests totalTests score submittedAt completedAt");
+    const { submissionId } = req.params;
+    
+    console.log("📊 Getting submission status for:", submissionId);
+    console.log("👤 User:", req.user ? req.user._id : 'No user');
+
+    // Validate submission ID format
+    if (!submissionId || !submissionId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid submission ID format",
+      });
+    }
+
+    const submission = await CodeSubmission.findById(submissionId)
+      .select("status passedTests totalTests score submittedAt completedAt user");
 
     if (!submission) {
+      console.log("❌ Submission not found:", submissionId);
       return res.status(404).json({
         success: false,
         message: "Submission not found",
       });
     }
 
-    if (
-      submission.user.toString() !== req.user._id.toString() &&
-      !["admin", "teacher", "principal"].includes(req.user.role)
-    ) {
-      return res.status(403).json({
+    // Check if user is authenticated
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
         success: false,
-        message: "Access denied",
+        message: "Authentication required",
       });
     }
+
+    // Check authorization
+    const isOwner = submission.user.toString() === req.user._id.toString();
+    const isTeacher = req.user.role && ["admin", "teacher", "principal"].includes(req.user.role);
+
+    if (!isOwner && !isTeacher) {
+      console.log("❌ Access denied for user:", req.user._id);
+      return res.status(403).json({
+        success: false,
+        message: "Access denied to this submission",
+      });
+    }
+
+    console.log("✅ Submission status retrieved successfully");
 
     res.json({
       success: true,
@@ -489,11 +514,20 @@ const getSubmissionStatus = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Get submission status error:", error);
+    console.error("❌ Get submission status error:", error);
+    
+    // Handle specific database errors
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid submission ID format",
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: "Could not get submission status",
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
     });
   }
 };
