@@ -16,12 +16,12 @@ const createAdmin = async () => {
 
     // Change this password!
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash("sahatanush05@gmail.com", salt); // Change this password!
+    const hashedPassword = await bcrypt.hash("test@gmail.com", salt); // Change this password!
 
     // Create admin user
     const admin = await User.create({
       name: "System Administrator",
-      email: "sahatanush05@gmail.com", // Change this email!
+      email: "test@gmail.com", // Change this email!
       password: hashedPassword,
       role: "admin",
       employeeId: `EMP${Date.now()}001`,
