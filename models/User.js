@@ -330,10 +330,8 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-userSchema.index({ email: 1 });
-userSchema.index({ role: 1 });
-userSchema.index({ studentId: 1 });
-userSchema.index({ employeeId: 1 });
+// Note: indexes for unique fields (email, studentId, employeeId) are created via schema definitions
+// Avoid duplicating indexes here to prevent Mongoose duplicate index warnings
 
 userSchema.virtual("fullAddress").get(function () {
   const { street, city, state, zipCode, country } = this.address || {};

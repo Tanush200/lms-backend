@@ -190,90 +190,34 @@ codeSubmissionSchema.methods.updateResults = function (
 ) {
   this.judge0Results = judge0Results;
 
-  // Helper function to normalize output for comparison
-  const normalizeOutput = (output) => {
-    if (!output) return "";
-    return output
-      .trim()
-      .replace(/\r\n/g, '\n')  // Normalize line endings
-      .replace(/\r/g, '\n')    // Handle old Mac line endings
-      .replace(/\n+/g, '\n')   // Collapse multiple newlines
-      .trim();
-  };
 
   this.testResults = judge0Results.map((result, index) => {
     const testCase = testCases[index];
-    
-    // Safely decode base64 output
-    let actualOutput = "";
-    let errorMessage = "";
-    
-    try {
-      actualOutput = result.stdout
-        ? Buffer.from(result.stdout, "base64").toString()
-        : "";
-    } catch (e) {
-      console.error(`Error decoding stdout for test ${index}:`, e);
-      actualOutput = "";
-    }
-    
-    try {
-      errorMessage = result.stderr
-        ? Buffer.from(result.stderr, "base64").toString()
-        : "";
-    } catch (e) {
-      console.error(`Error decoding stderr for test ${index}:`, e);
-      errorMessage = "";
-    }
+    const actualOutput = result.stdout
+      ? Buffer.from(result.stdout, "base64").toString().trim()
+      : "";
+    const expectedOutput = testCase.expectedOutput.trim();
 
-    const expectedOutput = testCase.expectedOutput;
-    
-    // Determine status based on Judge0 status ID
     let status = "failed";
-    
-    switch (result.status.id) {
-      case 3: // Accepted - execution completed successfully
-        // Check if output matches (Judge0 already did this check)
-        const normalizedActual = normalizeOutput(actualOutput);
-        const normalizedExpected = normalizeOutput(expectedOutput);
-        status = normalizedActual === normalizedExpected ? "passed" : "failed";
-        break;
-      case 4: // Wrong Answer - Judge0 determined output doesn't match
-        status = "failed";
-        break;
-      case 5: // Time Limit Exceeded
-        status = "timeout";
-        break;
-      case 6: // Compilation Error
-        status = "error";
-        break;
-      case 7: // Runtime Error
-      case 8: // Runtime Error (NZEC)
-      case 9: // Runtime Error (Other)
-      case 10: // Runtime Error (SIGSEGV)
-      case 11: // Runtime Error (SIGFPE)
-      case 12: // Runtime Error (SIGABRT)
-        status = "error";
-        break;
-      default:
-        status = "error";
+    if (result.status.id === 3) {
+      status = actualOutput === expectedOutput ? "passed" : "failed";
+    } else if (result.status.id === 5) {
+      status = "timeout";
+    } else if (result.status.id >= 6) {
+      status = "error";
     }
-
-    console.log(`Test ${index}: Judge0 Status ${result.status.id} (${result.status.description}), Our Status: ${status}`);
-    console.log(`Expected: "${normalizeOutput(expectedOutput)}"`);
-    console.log(`Actual: "${normalizeOutput(actualOutput)}"`);
-    console.log(`Match: ${normalizeOutput(actualOutput) === normalizeOutput(expectedOutput)}`);
 
     return {
       testCaseId: testCase._id,
       status,
       input: testCase.input,
       expectedOutput: testCase.expectedOutput,
-      actualOutput: actualOutput.trim(),
+      actualOutput,
       executionTime: parseFloat(result.time) || 0,
       memoryUsed: parseInt(result.memory) || 0,
-      errorMessage: errorMessage,
-      judge0Status: result.status,
+      errorMessage: result.stderr
+        ? Buffer.from(result.stderr, "base64").toString()
+        : "",
     };
   });
 

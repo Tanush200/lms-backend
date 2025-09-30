@@ -231,7 +231,7 @@ const processQuestions = async (questions, settings, user) => {
       if (settings.skipDuplicates) {
         const existingQuestion = await Question.findOne({
           question: questionData.question,
-          createdBy: user._id,
+          creator: user._id,
         });
 
         if (existingQuestion) {
@@ -243,7 +243,7 @@ const processQuestions = async (questions, settings, user) => {
       // Apply settings
       const finalQuestionData = {
         ...questionData,
-        createdBy: user._id,
+        creator: user._id,
         type: settings.category || questionData.type || "mcq",
         difficulty: settings.difficulty || questionData.difficulty || "medium",
         status: settings.autoPublish ? "published" : "draft",
