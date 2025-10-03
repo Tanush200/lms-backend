@@ -42,6 +42,7 @@ const adminRoutes = require("./routes/admin");
 const studentManagementRoutes = require("./routes/studentManagementRoutes"); 
 const questionImportRoutes = require("./routes/questionImportRoutes");
 const parentRoutes = require("./routes/parent");
+const noticeRoutes = require("./routes/notices");
 
 
 app.get("/api/health", (req, res) => {
@@ -75,6 +76,8 @@ app.use("/api/questions/import", questionImportRoutes);
 app.use("/api/parent", parentRoutes);
 // Alias (plural) for parent routes to support /api/parents/* endpoints
 app.use("/api/parents", parentRoutes);
+
+app.use("/api/notices", noticeRoutes);
 
 
 
