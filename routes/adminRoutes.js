@@ -5,6 +5,7 @@ const {
   addStudent,
   bulkEnrollStudent,
   sendLoginCredentials,
+  linkStudentsToParent
 } = require("../controllers/adminController");
 
 const { protect, authorize } = require("../middleware/auth");
@@ -20,5 +21,6 @@ router.get("/students", getStudents);
 router.post("/students", addStudent);
 router.post("/bulk-enroll", bulkEnrollStudent);
 router.post("/send-credentials/:studentId", sendLoginCredentials);
+router.post('/parents/:parentId/link-students', protect, authorize('admin'), linkStudentsToParent)
 
 module.exports = router;

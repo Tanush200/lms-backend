@@ -55,7 +55,6 @@ const programmingProblemSchema = new mongoose.Schema(
       required: [true, "Problem must have a creator"],
     },
 
-
     allowedLanguages: [
       {
         language: {
@@ -70,7 +69,6 @@ const programmingProblemSchema = new mongoose.Schema(
         template: String,
       },
     ],
-
 
     timeLimit: {
       type: Number,
@@ -108,7 +106,6 @@ const programmingProblemSchema = new mongoose.Schema(
       },
     ],
 
-
     examples: [
       {
         input: {
@@ -133,7 +130,6 @@ const programmingProblemSchema = new mongoose.Schema(
       required: true,
     },
     notes: String,
-
 
     hints: [
       {
@@ -161,13 +157,11 @@ const programmingProblemSchema = new mongoose.Schema(
       default: true,
     },
 
-
     status: {
       type: String,
       enum: ["draft", "published", "archived"],
       default: "draft",
     },
-
 
     stats: {
       totalSubmissions: { type: Number, default: 0 },
@@ -205,13 +199,11 @@ const programmingProblemSchema = new mongoose.Schema(
   }
 );
 
-
 programmingProblemSchema.index({ creator: 1, status: 1 });
 programmingProblemSchema.index({ course: 1, difficulty: 1 });
 programmingProblemSchema.index({ category: 1, difficulty: 1 });
 programmingProblemSchema.index({ tags: 1 });
 programmingProblemSchema.index({ title: "text", description: "text" });
-
 
 const defaultLanguages = [
   {
@@ -245,7 +237,6 @@ const defaultLanguages = [
       "#include <stdio.h>\n\nint main() {\n    // Your solution here\n    return 0;\n}",
   },
 ];
-
 
 programmingProblemSchema.pre("save", function (next) {
   if (this.testCases.length === 0) {
@@ -287,14 +278,12 @@ programmingProblemSchema.virtual("hiddenTestCases").get(function () {
   return this.testCases.filter((tc) => tc && tc.isHidden).length;
 });
 
-
 programmingProblemSchema.methods.updateStats = function (submission) {
   this.stats.totalSubmissions += 1;
 
   if (submission.overallStatus === "accepted") {
     this.stats.acceptedSubmissions += 1;
   }
-
 
   const lang = submission.language;
   if (this.stats.languageStats[lang]) {

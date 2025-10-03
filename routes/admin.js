@@ -2,6 +2,7 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/auth');
 const User = require('../models/User');
+const { linkStudentsToParent, getStudents } = require('../controllers/adminController');
 const router = express.Router();
 
 // @desc    Create user (Admin only)
@@ -216,3 +217,50 @@ router.get('/users', protect, authorize('admin'), async (req, res) => {
 });
 
 module.exports = router;
+ 
+// Admin: Link students to a parent
+router.post(
+  '/parents/:parentId/link-students',
+  protect,
+  authorize('admin'),
+  linkStudentsToParent
+);
+
+// Admin: Get children linked to a parent
+router.get(
+  '/parents/:parentId/children',
+  protect,
+  authorize('admin'),
+  async (req, res) => {
+    try {
+      const { parentId } = req.params;
+      const parent = await User.findById(parentId)
+        .select('-password')
+        .populate({ path: 'parentOf', select: 'name email role isActive' });
+
+      if (!parent || parent.role !== 'parent') {
+        return res.status(404).json({
+          success: false,
+          message: 'Parent not found or invalid role',
+        });
+      }
+
+      const children = Array.isArray(parent.parentOf) ? parent.parentOf : [];
+
+      return res.json({ success: true, data: { children } });
+    } catch (error) {
+      console.error('Get parent children (admin) error:', error);
+      return res
+        .status(500)
+        .json({ success: false, message: 'Server error', error: error.message });
+    }
+  }
+);
+
+// Admin: Get students list (with pagination/search)
+router.get(
+  '/students',
+  protect,
+  authorize('admin', 'principal'),
+  getStudents
+);

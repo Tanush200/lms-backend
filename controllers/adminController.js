@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
 // Configure email transporter
-const transporter = nodemailer.createTransporter({
+const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.EMAIL_USER,
@@ -374,9 +374,46 @@ const sendCredentialsEmail = async ({
   console.log(`📧 Credentials email sent to: ${studentEmail}`);
 };
 
+const linkStudentsToParent = async (req, res) => {
+  try {
+    const parentId = req.params.parentId;
+    const { studentIds } = req.body; // expects array of student user IDs
+
+    if (!Array.isArray(studentIds) || studentIds.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Student IDs required" });
+    }
+
+    const parent = await User.findById(parentId);
+    if (!parent || parent.role !== "parent") {
+      return res
+        .status(404)
+        .json({ success: false, message: "Parent not found or invalid role" });
+    }
+
+    // Remove duplicates - merge existing student IDs with new
+    const existingIds = parent.parentOf.map((id) => id.toString());
+    const newIds = studentIds.filter((id) => !existingIds.includes(id));
+    parent.parentOf = [...existingIds, ...newIds];
+
+    await parent.save();
+
+    res.json({
+      success: true,
+      message: "Students linked successfully",
+      parent,
+    });
+  } catch (error) {
+    console.error("Error linking students to parent:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 module.exports = {
   getStudents,
   addStudent,
   bulkEnrollStudent,
   sendLoginCredentials,
+  linkStudentsToParent,
 };
