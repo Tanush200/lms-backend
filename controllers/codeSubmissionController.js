@@ -129,57 +129,6 @@ const testCode = async (req, res) => {
   }
 };
 
-// @desc    Get submission details
-// @route   GET /api/code-submissions/:submissionId
-// @access  Private (Submission owner or Teacher/Admin)
-// const getSubmission = async (req, res) => {
-//   try {
-//     const submission = await CodeSubmission.findById(req.params.submissionId)
-//       .populate("problem", "title difficulty testCases")
-//       .populate("user", "name email studentId");
-
-//     if (!submission) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Submission not found",
-//       });
-//     }
-
-
-//     const isOwner = submission.user._id.toString() === req.user._id.toString();
-//     const isTeacher = ["admin", "principal", "teacher"].includes(req.user.role);
-
-//     if (!isOwner && !isTeacher) {
-//       return res.status(403).json({
-//         success: false,
-//         message: "Access denied to this submission",
-//       });
-//     }
-
-//     if (req.user.role === "student") {
-//       submission.testResults = submission.testResults.filter(
-//         (result, index) => {
-//           const testCase = submission.problem.testCases[index];
-//           return testCase && !testCase.isHidden;
-//         }
-//       );
-//     }
-
-//     res.json({
-//       success: true,
-//       data: { submission },
-//     });
-//   } catch (error) {
-//     console.error("Get submission error:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Could not get submission",
-//       error: error.message,
-//     });
-//   }
-// };
-
-
 
 
 // @desc    Get submission details
