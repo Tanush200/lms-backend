@@ -43,6 +43,7 @@ const studentManagementRoutes = require("./routes/studentManagementRoutes");
 const questionImportRoutes = require("./routes/questionImportRoutes");
 const parentRoutes = require("./routes/parent");
 const noticeRoutes = require("./routes/notices");
+const attendanceRoutes = require("./routes/attendanceRoutes");
 
 
 app.get("/api/health", (req, res) => {
@@ -78,6 +79,8 @@ app.use("/api/parent", parentRoutes);
 app.use("/api/parents", parentRoutes);
 
 app.use("/api/notices", noticeRoutes);
+
+app.use("/api/attendance", attendanceRoutes);
 
 
 

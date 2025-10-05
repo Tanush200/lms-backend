@@ -277,11 +277,11 @@ courseSchema.methods.canEnroll = function (user) {
   }
 
 
-  if (this.stats.totalStudents >= this.maxStudents) {
+  if (this.maxStudents && this.stats.totalStudents >= this.maxStudents) {
     return { canEnroll: false, reason: "Course is full" };
   }
 
-  if (!this.allowSelfEnrollment && user.role !== "admin") {
+  if (!this.allowSelfEnrollment && !["admin", "principal", "teacher"].includes(user.role)) {
     return { canEnroll: false, reason: "Self-enrollment not allowed" };
   }
 

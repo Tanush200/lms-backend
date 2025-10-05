@@ -65,8 +65,9 @@ const enrollInCourse = async (req, res) => {
     });
 
     if (existingEnrollment) {
-      return res.status(400).json({
-        success: false,
+      // Idempotent response: treat as success to simplify admin flows
+      return res.status(200).json({
+        success: true,
         message: "Student is already enrolled in this course",
         data: { enrollment: existingEnrollment },
       });

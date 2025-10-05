@@ -184,7 +184,7 @@ router.get("/instructor/:instructorId", getCoursesByInstructor);
 
 // ✅ ENROLLMENT ROUTES  
 router.post("/:courseId/enroll", 
-  authorize("student"), // ✅ Only students can enroll
+  authorize("student", "admin", "principal"), // ✅ Allow admin/principal to enroll students
   enrollInCourse
 );
 
