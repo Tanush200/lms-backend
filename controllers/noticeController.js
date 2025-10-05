@@ -23,23 +23,45 @@ const createNotice = async (req, res) => {
         .json({ success: false, message: "Title and body are required" });
     }
 
+    // Normalize enums defensively (accept case-insensitive or aliases)
+    const allowedCategories = ["Information", "Event", "Holiday", "Exam", "Meeting", "Urgent"];
+    const allowedPriorities = ["Low", "Medium", "High"];
+    const normCategory = allowedCategories.find((c) => c.toLowerCase() === String(category || "").toLowerCase()) || "Information";
+    const normPriority = allowedPriorities.find((p) => p.toLowerCase() === String(priority || "").toLowerCase()) || "Low";
+
+    // Normalize audience arrays
+    const cleanRoles = Array.isArray(audience.roles)
+      ? audience.roles.filter((r) => typeof r === "string").map((r) => r.toLowerCase())
+      : undefined;
+    const cleanCourseIds = Array.isArray(audience.courseIds)
+      ? audience.courseIds.filter(Boolean)
+      : undefined;
+    const cleanClasses = Array.isArray(audience.classes)
+      ? audience.classes.filter((s) => typeof s === "string" && s.trim().length > 0)
+      : undefined;
+    const cleanUserIds = Array.isArray(audience.userIds)
+      ? audience.userIds.filter(Boolean)
+      : undefined;
+
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
     const notice = await Notice.create({
       title,
       body,
       attachments,
       audience: {
-        roles: Array.isArray(audience.roles) ? audience.roles : undefined,
-        courseIds: Array.isArray(audience.courseIds)
-          ? audience.courseIds
-          : undefined,
-        classes: Array.isArray(audience.classes) ? audience.classes : undefined,
-        userIds: Array.isArray(audience.userIds) ? audience.userIds : undefined,
+        roles: cleanRoles,
+        courseIds: cleanCourseIds,
+        classes: cleanClasses,
+        userIds: cleanUserIds,
       },
       isPinned: !!isPinned,
       isActive: !!isActive,
-      category,
-      priority,
-      createdBy: req.user?._id,
+      category: normCategory,
+      priority: normPriority,
+      createdBy: req.user._id,
       publishedAt: new Date(),
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     });
