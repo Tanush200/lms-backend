@@ -1,4 +1,4 @@
-// backend/routes/adminRoutes.js - ADMIN ROUTES
+
 const express = require("express");
 const {
   getStudents,
@@ -12,11 +12,11 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Protect all admin routes
+
 router.use(protect);
 router.use(authorize("admin", "principal"));
 
-// Student management routes
+
 router.get("/students", getStudents);
 router.post("/students", addStudent);
 router.post("/bulk-enroll", bulkEnrollStudent);

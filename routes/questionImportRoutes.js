@@ -1,4 +1,3 @@
-// backend/routes/questionImportRoutes.js
 const express = require("express");
 const {
   upload,
@@ -9,10 +8,10 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Protect all routes
+
 router.use(protect);
 
-// Import questions
+
 router.post(
   "/",
   authorize("teacher", "admin", "principal"),
@@ -20,7 +19,7 @@ router.post(
   importQuestions
 );
 
-// Get templates
+
 router.get("/templates/:format", getTemplate);
 
 module.exports = router;

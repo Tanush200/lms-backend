@@ -1,8 +1,10 @@
-// backend/routes/admin.js - CREATE THIS FILE
-const express = require('express');
-const { protect, authorize } = require('../middleware/auth');
-const User = require('../models/User');
-const { linkStudentsToParent, getStudents } = require('../controllers/adminController');
+const express = require("express");
+const { protect, authorize } = require("../middleware/auth");
+const User = require("../models/User");
+const {
+  linkStudentsToParent,
+  getStudents,
+} = require("../controllers/adminController");
 const router = express.Router();
 
 // @desc    Create user (Admin only)
@@ -25,7 +27,6 @@ router.post("/users", protect, authorize("admin"), async (req, res) => {
       address,
     });
 
-    // ✅ VALIDATE REQUIRED FIELDS
     if (!name || !email || !password || !role) {
       console.log("❌ Missing required fields:", {
         name: !!name,
@@ -39,7 +40,6 @@ router.post("/users", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    // Admin can create any role
     const allowedRoles = [
       "admin",
       "principal",
@@ -58,7 +58,6 @@ router.post("/users", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    // Check if user already exists
     console.log(
       "🔍 Checking for existing user with email:",
       email.toLowerCase()
@@ -72,7 +71,6 @@ router.post("/users", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    // Generate IDs
     let additionalFields = {};
     if (role === "student") {
       const studentCount = await User.countDocuments({ role: "student" });
@@ -92,7 +90,6 @@ router.post("/users", protect, authorize("admin"), async (req, res) => {
       console.log("🆔 Generated employeeId:", additionalFields.employeeId);
     }
 
-    // Prepare user data
     const userData = {
       name,
       email: email.toLowerCase(),
@@ -110,12 +107,11 @@ router.post("/users", protect, authorize("admin"), async (req, res) => {
       password: "***",
     });
 
-    // Create user (password will be hashed by pre-save middleware)
     const user = await User.create(userData);
 
     console.log("✅ User created successfully:", user.email);
 
-    user.password = undefined; // Remove password from response
+    user.password = undefined;
 
     res.status(201).json({
       success: true,
@@ -139,7 +135,6 @@ router.post("/users", protect, authorize("admin"), async (req, res) => {
     console.error("❌ Error name:", error.name);
     console.error("❌ Error message:", error.message);
 
-    // Check for validation errors
     if (error.name === "ValidationError") {
       const validationErrors = Object.values(error.errors).map(
         (err) => err.message
@@ -163,7 +158,7 @@ router.post("/users", protect, authorize("admin"), async (req, res) => {
 // @desc    Get all users (Admin only)
 // @route   GET /api/admin/users
 // @access  Private (Admin only)
-router.get('/users', protect, authorize('admin'), async (req, res) => {
+router.get("/users", protect, authorize("admin"), async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -176,18 +171,18 @@ router.get('/users', protect, authorize('admin'), async (req, res) => {
     }
 
     if (req.query.isActive !== undefined) {
-      query.isActive = req.query.isActive === 'true';
+      query.isActive = req.query.isActive === "true";
     }
 
     if (req.query.search) {
       query.$or = [
-        { name: { $regex: req.query.search, $options: 'i' } },
-        { email: { $regex: req.query.search, $options: 'i' } },
+        { name: { $regex: req.query.search, $options: "i" } },
+        { email: { $regex: req.query.search, $options: "i" } },
       ];
     }
 
     const users = await User.find(query)
-      .select('-password')
+      .select("-password")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -207,41 +202,39 @@ router.get('/users', protect, authorize('admin'), async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Get admin users error:', error);
+    console.error("Get admin users error:", error);
     res.status(500).json({
       success: false,
-      message: 'Could not get users',
+      message: "Could not get users",
       error: error.message,
     });
   }
 });
 
 module.exports = router;
- 
-// Admin: Link students to a parent
+
 router.post(
-  '/parents/:parentId/link-students',
+  "/parents/:parentId/link-students",
   protect,
-  authorize('admin'),
+  authorize("admin"),
   linkStudentsToParent
 );
 
-// Admin: Get children linked to a parent
 router.get(
-  '/parents/:parentId/children',
+  "/parents/:parentId/children",
   protect,
-  authorize('admin'),
+  authorize("admin"),
   async (req, res) => {
     try {
       const { parentId } = req.params;
       const parent = await User.findById(parentId)
-        .select('-password')
-        .populate({ path: 'parentOf', select: 'name email role isActive' });
+        .select("-password")
+        .populate({ path: "parentOf", select: "name email role isActive" });
 
-      if (!parent || parent.role !== 'parent') {
+      if (!parent || parent.role !== "parent") {
         return res.status(404).json({
           success: false,
-          message: 'Parent not found or invalid role',
+          message: "Parent not found or invalid role",
         });
       }
 
@@ -249,18 +242,17 @@ router.get(
 
       return res.json({ success: true, data: { children } });
     } catch (error) {
-      console.error('Get parent children (admin) error:', error);
+      console.error("Get parent children (admin) error:", error);
       return res
         .status(500)
-        .json({ success: false, message: 'Server error', error: error.message });
+        .json({
+          success: false,
+          message: "Server error",
+          error: error.message,
+        });
     }
   }
 );
 
-// Admin: Get students list (with pagination/search)
-router.get(
-  '/students',
-  protect,
-  authorize('admin', 'principal'),
-  getStudents
-);
+
+router.get("/students", protect, authorize("admin", "principal"), getStudents);

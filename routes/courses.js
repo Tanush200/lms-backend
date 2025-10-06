@@ -1,4 +1,4 @@
-// routes/courses.js - UPDATED WITH THUMBNAIL UPLOAD SUPPORT
+
 const express = require('express');
 const {
   createCourse,
@@ -25,7 +25,7 @@ const {
 } = require("../controllers/materialController");
 
 const { protect, authorize, optionalAuth } = require('../middleware/auth');
-// ✅ Import file upload middleware
+
 const { uploadCourseContent } = require('../config/cloudinary');
 
 const router = express.Router();
@@ -34,7 +34,7 @@ const router = express.Router();
 router.get('/', optionalAuth, getCourses);
 router.get("/public/:courseId", getPublicCourse);
 
-// ✅ Add public course access route (for published courses only)
+
 router.get('/:id', async (req, res, next) => {
   try {
     const Course = require("../models/Course");
@@ -56,42 +56,16 @@ router.get('/:id', async (req, res, next) => {
       data: course,
     });
   } catch (error) {
-    // If public access fails, try with authentication
+ 
     next();
   }
 });
-// router.get("/:id", async (req, res, next) => {
-//   try {
-//     const Course = require("../models/Course");
-//     const course = await Course.findOne({
-//       _id: req.params.id,
-//       status: "published",
-//       isPublic: true,
-//     }).populate("instructor", "name email");
 
-//     if (!course) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Course not found or not available publicly",
-//       });
-//     }
-
-//     res.json({
-//       success: true,
-//       data: course,
-//     });
-//   } catch (error) {
-//     // If public access fails, try with authentication
-//     next();
-//   }
-// });
 
 // =================== PROTECTED ROUTES ===================
 router.use(protect);
 
-// Add this BEFORE the general /:id route in routes/courses.js
 
-// ✅ TEACHER-SPECIFIC ROUTE - Always allows access to own courses
 router.get("/teacher/:id", 
   authorize("teacher", "admin", "principal"),
   async (req, res) => {
@@ -102,7 +76,7 @@ router.get("/teacher/:id",
 
       console.log(`🎓 Teacher accessing course ${id}`);
 
-      // ✅ Find course owned by this teacher (any status)
+
       const course = await Course.findOne({
         _id: id,
         $or: [
@@ -126,7 +100,7 @@ router.get("/teacher/:id",
         status: course.status
       });
 
-      // Attach enrollments count
+
       const Enrollment = require('../models/Enrollment');
       const enrollmentsCount = await Enrollment.countDocuments({ course: id });
       const courseObj = course.toObject();
@@ -150,8 +124,7 @@ router.get("/teacher/:id",
 
 router.get("/:id", getCourse); 
 
-// ✅ COURSE CRUD WITH FILE UPLOAD SUPPORT
-// Wrap multer handlers to avoid unhandled rejections and surface errors as 4xx
+
 const wrapSingleUpload = (fieldName) => (req, res, next) => {
   uploadCourseContent.single(fieldName)(req, res, (err) => {
     if (err) {
@@ -164,65 +137,65 @@ const wrapSingleUpload = (fieldName) => (req, res, next) => {
 
 router.post("/", 
   authorize("admin", "principal", "teacher"),
-  wrapSingleUpload('thumbnail'), // ✅ Handle thumbnail upload safely
+  wrapSingleUpload('thumbnail'),
   createCourse
 );
 
 router.patch('/:id', 
-  authorize("admin", "principal", "teacher"), // ✅ Add authorization
-  wrapSingleUpload('thumbnail'), // ✅ Handle thumbnail update safely
+  authorize("admin", "principal", "teacher"),
+  wrapSingleUpload('thumbnail'), 
   updateCourse
 );
 
 router.delete('/:id', 
-  authorize("admin", "principal", "teacher"), // ✅ Add authorization
+  authorize("admin", "principal", "teacher"),
   deleteCourse
 );
 
-// ✅ INSTRUCTOR ROUTES
+
 router.get("/instructor/:instructorId", getCoursesByInstructor);
 
-// ✅ ENROLLMENT ROUTES  
+
 router.post("/:courseId/enroll", 
-  authorize("student", "admin", "principal"), // ✅ Allow admin/principal to enroll students
+  authorize("student", "admin", "principal"),
   enrollInCourse
 );
 
 router.get("/:courseId/enrollments", 
-  authorize("admin", "principal", "teacher"), // ✅ Only instructors/admins can view enrollments
+  authorize("admin", "principal", "teacher"),
   getCourseEnrollments
 );
 
 router.patch("/:courseId/enrollments/:enrollmentId", 
-  authorize("admin", "principal", "teacher"), // ✅ Only instructors/admins can update enrollment status
+  authorize("admin", "principal", "teacher"),
   updateEnrollmentStatus
 );
 
-// ✅ MATERIAL ROUTES WITH PROPER FILE UPLOAD
+
 router.post("/:courseId/materials/upload", 
-  authorize("admin", "principal", "teacher"), // ✅ Only instructors can upload materials
-  wrapSingleUpload('file'), // ✅ Handle material file upload safely
+  authorize("admin", "principal", "teacher"),
+  wrapSingleUpload('file'),
   uploadMaterialFile
 );
 
 router.post("/:courseId/materials", 
-  authorize("admin", "principal", "teacher"), // ✅ Only instructors can add materials
+  authorize("admin", "principal", "teacher"),
   addMaterial
 );
 
-router.get("/:courseId/materials", getMaterials); // ✅ All enrolled users can view materials
+router.get("/:courseId/materials", getMaterials);
 
 router.patch("/:courseId/materials/:materialId", 
-  authorize("admin", "principal", "teacher"), // ✅ Only instructors can update materials
+  authorize("admin", "principal", "teacher"),
   updateMaterial
 );
 
 router.delete("/:courseId/materials/:materialId", 
-  authorize("admin", "principal", "teacher"), // ✅ Only instructors can delete materials
+  authorize("admin", "principal", "teacher"),
   deleteMaterial
 );
 
-// ✅ ADDITIONAL THUMBNAIL-SPECIFIC ROUTE (Optional)
+
 router.patch('/:id/thumbnail', 
   authorize("admin", "principal", "teacher"),
   wrapSingleUpload('thumbnail'),
@@ -238,7 +211,7 @@ router.patch('/:id/thumbnail',
         });
       }
 
-      // Check if user can update this course
+
       const isInstructor = course.instructor.toString() === req.user._id.toString();
       const isAdmin = ['admin', 'principal'].includes(req.user.role);
       
@@ -249,9 +222,9 @@ router.patch('/:id/thumbnail',
         });
       }
 
-      // Update thumbnail
+
       if (req.file) {
-        // Delete old thumbnail if exists
+
         if (course.thumbnail && course.thumbnail.public_id) {
           const { deleteFile } = require('../config/cloudinary');
           try {
@@ -284,7 +257,7 @@ router.patch('/:id/thumbnail',
   }
 );
 
-// ✅ COURSE ANALYTICS ROUTES (Optional but useful)
+
 router.get('/:courseId/analytics', 
   authorize("admin", "principal", "teacher"),
   async (req, res) => {
@@ -300,7 +273,7 @@ router.get('/:courseId/analytics',
         });
       }
 
-      // Check authorization
+   
       const isInstructor = course.instructor.toString() === req.user._id.toString();
       const isAdmin = ['admin', 'principal'].includes(req.user.role);
       
@@ -311,7 +284,7 @@ router.get('/:courseId/analytics',
         });
       }
 
-      // Get enrollment analytics
+
       const enrollments = await Enrollment.find({ course: req.params.courseId });
       const analytics = {
         totalEnrollments: enrollments.length,

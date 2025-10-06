@@ -26,6 +26,6 @@
     "multer": "^2.0.2",
     "multer-storage-cloudinary": "^4.0.0",
     "nodemailer": "^7.0.6",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.7"
   }
 }

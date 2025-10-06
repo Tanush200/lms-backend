@@ -3,8 +3,7 @@ const router = express.Router();
 const { protect, authorize } = require('../middleware/auth');
 const attendanceController = require('../controllers/attendanceController');
 
-// Student self-attendance endpoints (protect only; controller validates ownership)
-// IMPORTANT: define these BEFORE the parameter route /student/:studentId
+
 router.post('/student/mark', protect, attendanceController.studentMarkToday);
 router.get('/student/today', protect, attendanceController.studentToday);
 
