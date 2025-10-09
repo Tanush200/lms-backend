@@ -1,6 +1,30 @@
 const FeeReminder = require("../models/FeeReminder");
 const User = require("../models/User");
+const nodemailer = require("nodemailer");
 const Course = require("../models/Course");
+
+
+
+
+
+
+const transporter = nodemailer.createTransport({
+  service: "gmail", // Or use custom SMTP settings for other providers
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+
+async function sendMail({ to, subject, html }) {
+  return transporter.sendMail({
+    from: `"LMS Admin" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    html,
+  });
+}
 
 // Create or update fee reminder
 const createOrUpdateReminder = async (req, res) => {
@@ -137,17 +161,41 @@ const sendDueReminders = async (req, res) => {
       .populate("student")
       .populate("course");
 
-    // For demo: pretend to send email, update reminderSentAt
-    for (const reminder of dueReminders) {
-      console.log(
-        `Sending fee reminder to ${reminder.student.email} for course ${reminder.course.title}, amount: ${reminder.amountDue}`
-      );
+for (const reminder of dueReminders) {
+  try {
+    await sendMail({
+      to: reminder.student.email,
+      subject: `Fee Due Reminder - ${reminder.course.title}`,
+      html: `
+        <div style="font-family: Arial, sans-serif;">
+          <h2>Dear ${reminder.student.name},</h2>
+          <p>This is a reminder that your fee for the course <b>${
+        reminder.course.title
+      }</b> is due.</p>
+          <ul>
+            <li>Amount Due: <b>₹${reminder.amountDue}</b></li>
+            <li>Due Date: <b>${new Date(
+        reminder.dueDate
+      ).toLocaleDateString()}</b></li>
+          </ul>
+          <p>Please pay as soon as possible. If you have already paid, please ignore this mail.</p>
+          <hr>
+          <small>This is an automated fee reminder from LMS.</small>
+        </div>
+      `,
+    }); // Update reminderSentAt and status to overdue
+    reminder.reminderSentAt = new Date();
+    reminder.status = "overdue";
+    await reminder.save();
+  } catch (emailError) {
+    console.error(
+      "Failed to send email for reminder:",
+      reminder._id,
+      emailError
+    );
+  }
+}
 
-      // Update reminderSentAt and status to overdue
-      reminder.reminderSentAt = new Date();
-      reminder.status = "overdue";
-      await reminder.save();
-    }
 
     res.json({ success: true, count: dueReminders.length });
   } catch (error) {
