@@ -1,4 +1,6 @@
 const School = require("../models/School");
+const User = require("../models/User");
+const Course = require("../models/Course");
 
 // Create a new school (super_admin only)
 const createSchool = async (req, res) => {

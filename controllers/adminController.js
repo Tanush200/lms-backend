@@ -647,8 +647,9 @@ const bulkEnrollStudent = async (req, res) => {
     }
 
     // School access validation
+    const userSchoolId = req.user.school?._id || req.user.school;
     if (req.user.role !== 'super_admin' && 
-        student.school.toString() !== req.user.school.toString()) {
+        student.school.toString() !== userSchoolId?.toString()) {
       return res.status(403).json({
         success: false,
         message: "Cannot enroll student from different school",
@@ -751,8 +752,9 @@ const sendLoginCredentials = async (req, res) => {
     }
 
     // School access validation
+    const userSchoolId = req.user.school?._id || req.user.school;
     if (req.user.role !== 'super_admin' && 
-        student.school._id.toString() !== req.user.school.toString()) {
+        (student.school._id?.toString() || student.school.toString()) !== userSchoolId?.toString()) {
       return res.status(403).json({
         success: false,
         message: "Cannot send credentials to student from different school",
@@ -879,8 +881,9 @@ const linkStudentsToParent = async (req, res) => {
     }
 
     // School access validation
+    const userSchoolId = req.user.school?._id || req.user.school;
     if (req.user.role !== 'super_admin' && 
-        parent.school.toString() !== req.user.school.toString()) {
+        parent.school.toString() !== userSchoolId?.toString()) {
       return res.status(403).json({
         success: false,
         message: "Cannot link students to parent from different school",
