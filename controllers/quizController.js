@@ -281,7 +281,7 @@ const getQuizzes = async (req, res) => {
         courseIds: courseIds,
         query,
       });
-    } else if (["admin", "principal"].includes(req.user.role)) {
+    } else if (["super_admin", "admin", "principal"].includes(req.user.role)) {
       // Admins can see all quizzes - no additional filtering
     } else {
       // Unknown role - no access

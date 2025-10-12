@@ -1,10 +1,23 @@
 const School = require("../models/School");
 
 // Create a new school (super_admin only)
-exports.createSchool = async (req, res) => {
+const createSchool = async (req, res) => {
   try {
-    const { name, code, address, contact, logo, establishedYear, settings } =
-      req.body;
+    const {
+      name,
+      code,
+      email,
+      phone,
+      logo,
+      address,
+      city,
+      state,
+      zipCode,
+      country,
+      website,
+      description,
+      isActive,
+    } = req.body;
 
     if (!name || !code) {
       return res.status(400).json({
@@ -13,14 +26,28 @@ exports.createSchool = async (req, res) => {
       });
     }
 
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "School email is required",
+      });
+    }
+
     const school = await School.create({
       name,
       code,
-      address,
-      contact,
+      email,
+      phone,
       logo,
-      establishedYear,
-      settings,
+      address,
+      city,
+      state,
+      zipCode,
+      country,
+      website,
+      description,
+      isActive: isActive !== undefined ? !!isActive : true,
+      createdBy: req.user?._id,
     });
 
     res.status(201).json({
@@ -38,7 +65,7 @@ exports.createSchool = async (req, res) => {
 };
 
 // List all schools (super_admin sees all, admin sees only their school)
-exports.listSchools = async (req, res) => {
+const listSchools = async (req, res) => {
   try {
     const { page = 1, limit = 20, search } = req.query;
 
@@ -83,7 +110,7 @@ exports.listSchools = async (req, res) => {
 };
 
 // Get single school
-exports.getSchool = async (req, res) => {
+const getSchool = async (req, res) => {
   try {
     const { schoolId } = req.params;
 
@@ -111,7 +138,7 @@ exports.getSchool = async (req, res) => {
 };
 
 // Update school
-exports.updateSchool = async (req, res) => {
+const updateSchool = async (req, res) => {
   try {
     const { schoolId } = req.params;
     const updates = req.body;
@@ -144,7 +171,7 @@ exports.updateSchool = async (req, res) => {
 };
 
 // Delete school (super_admin only)
-exports.deleteSchool = async (req, res) => {
+const deleteSchool = async (req, res) => {
   try {
     const { schoolId } = req.params;
 
@@ -169,4 +196,95 @@ exports.deleteSchool = async (req, res) => {
       error: error.message,
     });
   }
+};
+
+const getSchoolStats = async (req, res) => {
+  try {
+    const school = await School.findById(req.params.id);
+    if (!school) {
+      return res.status(404).json({
+        success: false,
+        message: "School not found",
+      });
+    }
+
+    const [totalUsers, totalStudents, totalTeachers, totalCourses] =
+      await Promise.all([
+        User.countDocuments({ school: req.params.id }),
+        User.countDocuments({ school: req.params.id, role: "student" }),
+        User.countDocuments({ school: req.params.id, role: "teacher" }),
+        Course.countDocuments({ school: req.params.id }),
+      ]);
+
+    res.json({
+      success: true,
+      data: {
+        totalUsers,
+        totalStudents,
+        totalTeachers,
+        totalCourses,
+      },
+    });
+  } catch (error) {
+    console.error("Get school stats error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get school statistics",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Toggle school status (activate/deactivate)
+// @route   PATCH /api/schools/:id/toggle-status
+// @access  Private (Super Admin)
+const toggleSchoolStatus = async (req, res) => {
+  try {
+    const school = await School.findById(req.params.id);
+    if (!school) {
+      return res.status(404).json({
+        success: false,
+        message: "School not found",
+      });
+    }
+
+    school.isActive = !school.isActive;
+    await school.save();
+
+    // Log activity
+    const { logActivity } = require("./superAdminController");
+    await logActivity(
+      "school_updated",
+      `School ${school.name} ${school.isActive ? "activated" : "deactivated"}`,
+      req.user._id,
+      school._id,
+      "School",
+      school._id
+    );
+
+    res.json({
+      success: true,
+      message: `School ${
+        school.isActive ? "activated" : "deactivated"
+      } successfully`,
+      data: school,
+    });
+  } catch (error) {
+    console.error("Toggle school status error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to toggle school status",
+      error: error.message,
+    });
+  }
+};
+
+module.exports = {
+  createSchool,
+  listSchools,
+  getSchool,
+  updateSchool,
+  deleteSchool,
+  getSchoolStats,
+  toggleSchoolStatus,
 };

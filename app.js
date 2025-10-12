@@ -46,6 +46,7 @@ const noticeRoutes = require("./routes/notices");
 const attendanceRoutes = require("./routes/attendanceRoutes");
 const feeReminderRoutes = require("./routes/feeReminderRoutes");
 const schoolRoutes = require("./routes/schoolRoutes");
+const superAdminRoutes = require("./routes/superAdminRoutes");
 
 
 app.get("/api/health", (req, res) => {
@@ -87,6 +88,7 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/fee-reminders", feeReminderRoutes);
 
 app.use("/api/schools", schoolRoutes);
+app.use("/api/super-admin", superAdminRoutes);
 
 
 

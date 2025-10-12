@@ -1,18 +1,21 @@
 const express = require("express");
 const { protect, authorize, ownerOrAdmin } = require("../middleware/auth");
+const { getSchoolFilter } = require("../middleware/schoolAuth");
 const User = require("../models/User");
 
 const router = express.Router();
 
 router.use(protect);
 
-router.get("/", authorize("admin", "principal"), async (req, res) => {
+router.get("/", authorize("admin", "principal", "super_admin"), async (req, res) => {
   try {
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    let query = {};
+    // Apply school filter so admins/principals only see their school's users
+    const schoolFilter = getSchoolFilter(req);
+    let query = { ...schoolFilter };
 
     if (req.query.role) {
       query.role = req.query.role;
@@ -31,6 +34,7 @@ router.get("/", authorize("admin", "principal"), async (req, res) => {
 
     const usersList = await User.find(query)
       .select("-password")
+      .populate("school", "name code")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -40,7 +44,7 @@ router.get("/", authorize("admin", "principal"), async (req, res) => {
     res.json({
       success: true,
       data: {
-        users:usersList,
+        users: usersList,
         pagination: {
           page,
           limit,
