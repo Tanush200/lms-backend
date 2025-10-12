@@ -45,6 +45,7 @@ const parentRoutes = require("./routes/parent");
 const noticeRoutes = require("./routes/notices");
 const attendanceRoutes = require("./routes/attendanceRoutes");
 const feeReminderRoutes = require("./routes/feeReminderRoutes");
+const schoolRoutes = require("./routes/schoolRoutes");
 
 
 app.get("/api/health", (req, res) => {
@@ -84,6 +85,8 @@ app.use("/api/notices", noticeRoutes);
 app.use("/api/attendance", attendanceRoutes);
 
 app.use("/api/fee-reminders", feeReminderRoutes);
+
+app.use("/api/schools", schoolRoutes);
 
 
 
@@ -174,6 +177,48 @@ app.get("/api/test-db", async (req, res) => {
     res.status(500).json({
       message: "Database connection failed",
       error: error.message,
+    });
+  }
+});
+
+// ✅ Test endpoint for materials debugging
+app.get("/api/test-materials/:courseId", async (req, res) => {
+  try {
+    const Course = require("./models/Course");
+    const { courseId } = req.params;
+    
+    console.log("🧪 Testing materials endpoint for course:", courseId);
+    
+    const course = await Course.findById(courseId)
+      .populate("school", "name code")
+      .select("title instructor school materials");
+    
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: "Course not found",
+        courseId
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: "Course found",
+      data: {
+        courseId: course._id,
+        title: course.title,
+        instructor: course.instructor,
+        school: course.school,
+        materialsCount: course.materials?.length || 0,
+        materials: course.materials || []
+      }
+    });
+  } catch (error) {
+    console.error("❌ Test materials error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Test failed",
+      error: error.message
     });
   }
 });

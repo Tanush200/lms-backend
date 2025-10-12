@@ -43,6 +43,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: {
         values: [
+          "super_admin",
           "admin",
           "principal",
           "teacher",
@@ -55,6 +56,13 @@ const userSchema = new mongoose.Schema(
           "Role must be one of: admin, principal, teacher, student, parent, accountant, librarian",
       },
       required: [true, "Role is required"],
+    },
+    school: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "School",
+      required: function () {
+        return this.role !== "super_admin";
+      },
     },
 
     profilePhoto: {

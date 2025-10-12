@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const noticeSchema = new mongoose.Schema(
   {
+    school: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "School",
+      required: true,
+    },
     title: { type: String, required: true, trim: true, maxlength: 200 },
     body: { type: String, required: true, trim: true },
     category: {

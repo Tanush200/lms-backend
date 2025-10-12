@@ -20,6 +20,12 @@ const courseSchema = new mongoose.Schema(
       maxlength: [300, "Short description cannot exceed 300 characters"],
     },
 
+    school: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "School",
+      required: true,
+    },
+
     subject: {
       type: String,
       required: [true, "Subject is required"],

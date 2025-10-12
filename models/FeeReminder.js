@@ -1,6 +1,11 @@
 const mongoose = require("mongoose");
 
 const feeReminderSchema = new mongoose.Schema({
+  school: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "School",
+    required: true,
+  },
   student: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",

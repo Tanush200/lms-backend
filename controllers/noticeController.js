@@ -1,6 +1,333 @@
+// const Notice = require("../models/Notice");
+// const Enrollment = require("../models/Enrollment");
+// const Course = require("../models/Course");
+
+// // Create a new notice
+// const createNotice = async (req, res) => {
+//   try {
+//     const {
+//       title,
+//       body,
+//       audience = {},
+//       isPinned = false,
+//       isActive = true,
+//       attachments = [],
+//       category = "Information",
+//       priority = "Low",
+//       expiresAt,
+//     } = req.body;
+
+//     if (!title || !body) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Title and body are required" });
+//     }
+
+//     // Normalize enums defensively (accept case-insensitive or aliases)
+//     const allowedCategories = ["Information", "Event", "Holiday", "Exam", "Meeting", "Urgent"];
+//     const allowedPriorities = ["Low", "Medium", "High"];
+//     const normCategory = allowedCategories.find((c) => c.toLowerCase() === String(category || "").toLowerCase()) || "Information";
+//     const normPriority = allowedPriorities.find((p) => p.toLowerCase() === String(priority || "").toLowerCase()) || "Low";
+
+//     // Normalize audience arrays
+//     const cleanRoles = Array.isArray(audience.roles)
+//       ? audience.roles.filter((r) => typeof r === "string").map((r) => r.toLowerCase())
+//       : undefined;
+//     const cleanCourseIds = Array.isArray(audience.courseIds)
+//       ? audience.courseIds.filter(Boolean)
+//       : undefined;
+//     const cleanClasses = Array.isArray(audience.classes)
+//       ? audience.classes.filter((s) => typeof s === "string" && s.trim().length > 0)
+//       : undefined;
+//     const cleanUserIds = Array.isArray(audience.userIds)
+//       ? audience.userIds.filter(Boolean)
+//       : undefined;
+
+//     if (!req.user?._id) {
+//       return res.status(401).json({ success: false, message: "Authentication required" });
+//     }
+
+//     const notice = await Notice.create({
+//       title,
+//       body,
+//       attachments,
+//       audience: {
+//         roles: cleanRoles,
+//         courseIds: cleanCourseIds,
+//         classes: cleanClasses,
+//         userIds: cleanUserIds,
+//       },
+//       isPinned: !!isPinned,
+//       isActive: !!isActive,
+//       category: normCategory,
+//       priority: normPriority,
+//       createdBy: req.user._id,
+//       publishedAt: new Date(),
+//       expiresAt: expiresAt ? new Date(expiresAt) : null,
+//     });
+
+//     res.status(201).json({ success: true, data: { notice } });
+//   } catch (error) {
+//     console.error("Create notice error:", error);
+//     if (error.name === "ValidationError") {
+//       const messages = Object.values(error.errors).map((e) => e.message);
+//       return res.status(400).json({
+//         success: false,
+//         message: "Validation error",
+//         errors: messages,
+//       });
+//     }
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not create notice",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// // List notices with filters
+// const listNotices = async (req, res) => {
+//   try {
+//     const {
+//       page = 1,
+//       limit = 20,
+//       role,
+//       active,
+//       pinned,
+//       search,
+//       category,
+//       priority,
+//     } = req.query;
+//     const now = new Date();
+
+//     const query = {
+//       isActive: active === undefined ? true : active === "true",
+//       $and: [{ $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] }],
+//     };
+
+//     if (role) query["audience.roles"] = role;
+//     if (pinned !== undefined) query["isPinned"] = pinned === "true";
+//     if (category) query["category"] = category;
+//     if (priority) query["priority"] = priority;
+//     if (search) {
+//       query.$and.push({
+//         $or: [
+//           { title: { $regex: search, $options: "i" } },
+//           { body: { $regex: search, $options: "i" } },
+//         ],
+//       });
+//     }
+
+//     const notices = await Notice.find(query)
+//       .sort({ isPinned: -1, publishedAt: -1, createdAt: -1 })
+//       .skip((page - 1) * limit)
+//       .limit(Number(limit));
+
+//     const total = await Notice.countDocuments(query);
+
+//     res.json({
+//       success: true,
+//       data: {
+//         notices,
+//         pagination: {
+//           page: Number(page),
+//           limit: Number(limit),
+//           total,
+//           pages: Math.ceil(total / limit),
+//         },
+//       },
+//     });
+//   } catch (error) {
+//     console.error("List notices error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not fetch notices",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// // List notices for current user (my notices)
+// const listMyNotices = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+//     const role = req.user.role;
+//     const { page = 1, limit = 20, search } = req.query;
+//     const now = new Date();
+
+//     const orConditions = [
+//       { "audience.roles": role },
+//       { "audience.userIds": userId },
+//     ];
+
+//     let courseIds = [];
+//     if (role === "student") {
+//       const enrollments = await Enrollment.find({ student: userId }).select(
+//         "course"
+//       );
+//       courseIds = enrollments.map((e) => e.course);
+//     } else if (role === "teacher") {
+//       const courses = await Course.find({
+//         $or: [{ instructor: userId }, { assistantInstructors: userId }],
+//       }).select("_id");
+//       courseIds = courses.map((c) => c._id);
+//     } else if (role === "parent") {
+//       const parent = req.user;
+//       const childIds = (parent.parentOf || []).map((id) => id.toString());
+//       if (childIds.length > 0) {
+//         const enrollments = await Enrollment.find({
+//           student: { $in: childIds },
+//         }).select("course");
+//         courseIds = enrollments.map((e) => e.course);
+//       }
+//     }
+
+//     if (courseIds.length > 0) {
+//       orConditions.push({ "audience.courseIds": { $in: courseIds } });
+//     }
+
+//     const expiryCondition = {
+//       $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
+//     };
+
+//     const searchCondition = search
+//       ? {
+//           $or: [
+//             { title: { $regex: search, $options: "i" } },
+//             { body: { $regex: search, $options: "i" } },
+//           ],
+//         }
+//       : null;
+
+//     const query = {
+//       isActive: true,
+//       $and: [expiryCondition, { $or: orConditions }],
+//     };
+
+//     if (searchCondition) {
+//       query.$and.push(searchCondition);
+//     }
+
+//     const notices = await Notice.find(query)
+//       .sort({ isPinned: -1, publishedAt: -1, createdAt: -1 })
+//       .skip((page - 1) * limit)
+//       .limit(Number(limit));
+
+//     const total = await Notice.countDocuments(query);
+
+//     res.json({
+//       success: true,
+//       data: {
+//         notices,
+//         pagination: {
+//           page: Number(page),
+//           limit: Number(limit),
+//           total,
+//           pages: Math.ceil(total / limit),
+//         },
+//       },
+//     });
+//   } catch (error) {
+//     console.error("List my notices error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not fetch my notices",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// // Get single notice
+// const getNotice = async (req, res) => {
+//   try {
+//     const notice = await Notice.findById(req.params.id);
+//     if (!notice)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Notice not found" });
+//     res.json({ success: true, data: { notice } });
+//   } catch (error) {
+//     console.error("Get notice error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not fetch notice",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// // Update notice
+// const updateNotice = async (req, res) => {
+//   try {
+//     const { title, body, audience, isPinned, isActive, attachments } = req.body;
+//     const updates = {};
+//     if (title !== undefined) updates.title = title;
+//     if (body !== undefined) updates.body = body;
+//     if (Array.isArray(attachments)) updates.attachments = attachments;
+//     if (audience) {
+//       updates.audience = {};
+//       if (Array.isArray(audience.roles))
+//         updates.audience.roles = audience.roles;
+//       if (Array.isArray(audience.courseIds))
+//         updates.audience.courseIds = audience.courseIds;
+//       if (Array.isArray(audience.userIds))
+//         updates.audience.userIds = audience.userIds;
+//     }
+//     if (isPinned !== undefined) updates.isPinned = !!isPinned;
+//     if (isActive !== undefined) updates.isActive = !!isActive;
+
+//     const notice = await Notice.findByIdAndUpdate(req.params.id, updates, {
+//       new: true,
+//     });
+//     if (!notice)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Notice not found" });
+//     res.json({ success: true, data: { notice } });
+//   } catch (error) {
+//     console.error("Update notice error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not update notice",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// // Delete notice
+// const deleteNotice = async (req, res) => {
+//   try {
+//     const notice = await Notice.findByIdAndDelete(req.params.id);
+//     if (!notice)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Notice not found" });
+//     res.json({ success: true, message: "Notice deleted" });
+//   } catch (error) {
+//     console.error("Delete notice error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Could not delete notice",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// module.exports = {
+//   createNotice,
+//   listNotices,
+//   getNotice,
+//   updateNotice,
+//   deleteNotice,
+//   listMyNotices,
+// };
+
+
+
 const Notice = require("../models/Notice");
 const Enrollment = require("../models/Enrollment");
 const Course = require("../models/Course");
+const { getSchoolFilter } = require("../middleware/schoolAuth");
 
 // Create a new notice
 const createNotice = async (req, res) => {
@@ -18,33 +345,68 @@ const createNotice = async (req, res) => {
     } = req.body;
 
     if (!title || !body) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Title and body are required" });
+      return res.status(400).json({
+        success: false,
+        message: "Title and body are required",
+      });
     }
 
-    // Normalize enums defensively (accept case-insensitive or aliases)
-    const allowedCategories = ["Information", "Event", "Holiday", "Exam", "Meeting", "Urgent"];
+    // Normalize enums
+    const allowedCategories = [
+      "Information",
+      "Event",
+      "Holiday",
+      "Exam",
+      "Meeting",
+      "Urgent",
+    ];
     const allowedPriorities = ["Low", "Medium", "High"];
-    const normCategory = allowedCategories.find((c) => c.toLowerCase() === String(category || "").toLowerCase()) || "Information";
-    const normPriority = allowedPriorities.find((p) => p.toLowerCase() === String(priority || "").toLowerCase()) || "Low";
+    const normCategory =
+      allowedCategories.find(
+        (c) => c.toLowerCase() === String(category || "").toLowerCase()
+      ) || "Information";
+    const normPriority =
+      allowedPriorities.find(
+        (p) => p.toLowerCase() === String(priority || "").toLowerCase()
+      ) || "Low";
 
     // Normalize audience arrays
     const cleanRoles = Array.isArray(audience.roles)
-      ? audience.roles.filter((r) => typeof r === "string").map((r) => r.toLowerCase())
+      ? audience.roles
+          .filter((r) => typeof r === "string")
+          .map((r) => r.toLowerCase())
       : undefined;
     const cleanCourseIds = Array.isArray(audience.courseIds)
       ? audience.courseIds.filter(Boolean)
       : undefined;
     const cleanClasses = Array.isArray(audience.classes)
-      ? audience.classes.filter((s) => typeof s === "string" && s.trim().length > 0)
+      ? audience.classes.filter(
+          (s) => typeof s === "string" && s.trim().length > 0
+        )
       : undefined;
     const cleanUserIds = Array.isArray(audience.userIds)
       ? audience.userIds.filter(Boolean)
       : undefined;
 
     if (!req.user?._id) {
-      return res.status(401).json({ success: false, message: "Authentication required" });
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    // Determine school
+    let school;
+    if (req.user.role === "super_admin") {
+      school = req.body.school;
+      if (!school) {
+        return res.status(400).json({
+          success: false,
+          message: "Super admin must specify school for notice",
+        });
+      }
+    } else {
+      school = req.user.school;
     }
 
     const notice = await Notice.create({
@@ -64,6 +426,7 @@ const createNotice = async (req, res) => {
       createdBy: req.user._id,
       publishedAt: new Date(),
       expiresAt: expiresAt ? new Date(expiresAt) : null,
+      school, // Add school reference
     });
 
     res.status(201).json({ success: true, data: { notice } });
@@ -100,7 +463,11 @@ const listNotices = async (req, res) => {
     } = req.query;
     const now = new Date();
 
+    // Apply school filter
+    const schoolFilter = getSchoolFilter(req);
+
     const query = {
+      ...schoolFilter,
       isActive: active === undefined ? true : active === "true",
       $and: [{ $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] }],
     };
@@ -119,6 +486,7 @@ const listNotices = async (req, res) => {
     }
 
     const notices = await Notice.find(query)
+      .populate("school", "name code")
       .sort({ isPinned: -1, publishedAt: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit));
@@ -155,6 +523,9 @@ const listMyNotices = async (req, res) => {
     const { page = 1, limit = 20, search } = req.query;
     const now = new Date();
 
+    // Apply school filter
+    const schoolFilter = getSchoolFilter(req);
+
     const orConditions = [
       { "audience.roles": role },
       { "audience.userIds": userId },
@@ -162,12 +533,14 @@ const listMyNotices = async (req, res) => {
 
     let courseIds = [];
     if (role === "student") {
-      const enrollments = await Enrollment.find({ student: userId }).select(
-        "course"
-      );
+      const enrollments = await Enrollment.find({
+        student: userId,
+        ...schoolFilter,
+      }).select("course");
       courseIds = enrollments.map((e) => e.course);
     } else if (role === "teacher") {
       const courses = await Course.find({
+        ...schoolFilter,
         $or: [{ instructor: userId }, { assistantInstructors: userId }],
       }).select("_id");
       courseIds = courses.map((c) => c._id);
@@ -177,6 +550,7 @@ const listMyNotices = async (req, res) => {
       if (childIds.length > 0) {
         const enrollments = await Enrollment.find({
           student: { $in: childIds },
+          ...schoolFilter,
         }).select("course");
         courseIds = enrollments.map((e) => e.course);
       }
@@ -200,6 +574,7 @@ const listMyNotices = async (req, res) => {
       : null;
 
     const query = {
+      ...schoolFilter,
       isActive: true,
       $and: [expiryCondition, { $or: orConditions }],
     };
@@ -209,6 +584,7 @@ const listMyNotices = async (req, res) => {
     }
 
     const notices = await Notice.find(query)
+      .populate("school", "name code")
       .sort({ isPinned: -1, publishedAt: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit));
@@ -240,11 +616,21 @@ const listMyNotices = async (req, res) => {
 // Get single notice
 const getNotice = async (req, res) => {
   try {
-    const notice = await Notice.findById(req.params.id);
-    if (!notice)
-      return res
-        .status(404)
-        .json({ success: false, message: "Notice not found" });
+    // Apply school filter
+    const schoolFilter = getSchoolFilter(req);
+
+    const notice = await Notice.findOne({
+      _id: req.params.id,
+      ...schoolFilter,
+    }).populate("school", "name code");
+
+    if (!notice) {
+      return res.status(404).json({
+        success: false,
+        message: "Notice not found",
+      });
+    }
+
     res.json({ success: true, data: { notice } });
   } catch (error) {
     console.error("Get notice error:", error);
@@ -260,6 +646,27 @@ const getNotice = async (req, res) => {
 const updateNotice = async (req, res) => {
   try {
     const { title, body, audience, isPinned, isActive, attachments } = req.body;
+
+    // Find notice first to check school access
+    const notice = await Notice.findById(req.params.id);
+    if (!notice) {
+      return res.status(404).json({
+        success: false,
+        message: "Notice not found",
+      });
+    }
+
+    // School access validation
+    if (
+      req.user.role !== "super_admin" &&
+      notice.school.toString() !== req.user.school.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot update notice from different school",
+      });
+    }
+
     const updates = {};
     if (title !== undefined) updates.title = title;
     if (body !== undefined) updates.body = body;
@@ -276,14 +683,18 @@ const updateNotice = async (req, res) => {
     if (isPinned !== undefined) updates.isPinned = !!isPinned;
     if (isActive !== undefined) updates.isActive = !!isActive;
 
-    const notice = await Notice.findByIdAndUpdate(req.params.id, updates, {
-      new: true,
-    });
-    if (!notice)
-      return res
-        .status(404)
-        .json({ success: false, message: "Notice not found" });
-    res.json({ success: true, data: { notice } });
+    // Super admin can change school
+    if (req.user.role === "super_admin" && req.body.school) {
+      updates.school = req.body.school;
+    }
+
+    const updatedNotice = await Notice.findByIdAndUpdate(
+      req.params.id,
+      updates,
+      { new: true }
+    ).populate("school", "name code");
+
+    res.json({ success: true, data: { notice: updatedNotice } });
   } catch (error) {
     console.error("Update notice error:", error);
     res.status(500).json({
@@ -297,11 +708,26 @@ const updateNotice = async (req, res) => {
 // Delete notice
 const deleteNotice = async (req, res) => {
   try {
-    const notice = await Notice.findByIdAndDelete(req.params.id);
-    if (!notice)
-      return res
-        .status(404)
-        .json({ success: false, message: "Notice not found" });
+    const notice = await Notice.findById(req.params.id);
+    if (!notice) {
+      return res.status(404).json({
+        success: false,
+        message: "Notice not found",
+      });
+    }
+
+    // School access validation
+    if (
+      req.user.role !== "super_admin" &&
+      notice.school.toString() !== req.user.school.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot delete notice from different school",
+      });
+    }
+
+    await Notice.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: "Notice deleted" });
   } catch (error) {
     console.error("Delete notice error:", error);
