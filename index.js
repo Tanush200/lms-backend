@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const app = require("./app");
+const { app, server } = require("./app");
 const connectDB = require("./database");
 
 const PORT = process.env.PORT || 5000;
@@ -15,7 +15,7 @@ const startServer = async () => {
     console.log("✅ Database connected successfully");
 
 
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📍 Health check: http://localhost:${PORT}/api/health`);
       console.log(`🌐 Frontend URL: http://localhost:3000`);

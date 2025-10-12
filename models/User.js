@@ -148,6 +148,19 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    parentContact: {
+      name: String,
+      email: String,
+      phone: String,
+      relationship: {
+        type: String,
+        enum: ["father", "mother", "guardian"],
+      },
+      _id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User", // Reference to parent's user account if they have one
+      },
+    },
   },
   {
     timestamps: true,

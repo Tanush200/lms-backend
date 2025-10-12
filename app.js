@@ -2,9 +2,13 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const http = require("http");
+const { initializeSocket } = require("./socket/socketServer");
 
 const app = express();
+const server = http.createServer(app);
 
+const io = initializeSocket(server);
 
 app.use(
   helmet({
@@ -47,6 +51,7 @@ const attendanceRoutes = require("./routes/attendanceRoutes");
 const feeReminderRoutes = require("./routes/feeReminderRoutes");
 const schoolRoutes = require("./routes/schoolRoutes");
 const superAdminRoutes = require("./routes/superAdminRoutes");
+const messageRoutes = require("./routes/messageRoutes");
 
 
 app.get("/api/health", (req, res) => {
@@ -89,6 +94,10 @@ app.use("/api/fee-reminders", feeReminderRoutes);
 
 app.use("/api/schools", schoolRoutes);
 app.use("/api/super-admin", superAdminRoutes);
+app.use("/api/messages", messageRoutes);
+
+
+
 
 
 
@@ -261,4 +270,4 @@ app.use((err, req, res, next) => {
   });
 });
 
-module.exports = app;
+module.exports = { app, server };
