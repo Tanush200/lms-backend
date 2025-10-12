@@ -174,6 +174,16 @@ const initializeSocket = (server) => {
               conversation.unreadCount.parent = 0;
             }
             await conversation.save();
+
+            // Notify both participants so their UIs can update unread badges immediately
+            const participants = conversation.participants?.map((p) => p.toString()) || [];
+            const payload = {
+              conversationId: conversation._id.toString(),
+              unreadCount: conversation.unreadCount,
+            };
+            participants.forEach((uid) => {
+              io.to(`user:${uid}`).emit("unread-updated", payload);
+            });
           }
         }
 
