@@ -2,6 +2,7 @@ const express = require("express");
 const { protect, authorize, ownerOrAdmin } = require("../middleware/auth");
 const { getSchoolFilter } = require("../middleware/schoolAuth");
 const User = require("../models/User");
+const { uploadProfilePhoto, deleteFile } = require("../config/cloudinary");
 
 const router = express.Router();
 
@@ -60,6 +61,65 @@ router.get("/", authorize("admin", "principal", "super_admin"), async (req, res)
       message: "Could not get users",
       error: error.message,
     });
+  }
+});
+
+// Update own profile basic info
+router.patch("/me", async (req, res) => {
+  try {
+    const allowedUpdates = ["name", "phone", "address"];
+    const updates = {};
+
+    Object.keys(req.body).forEach((key) => {
+      if (allowedUpdates.includes(key)) {
+        updates[key] = req.body[key];
+      }
+    });
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { ...updates, updatedAt: new Date() },
+      { new: true, runValidators: true }
+    ).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    res.json({ success: true, message: "Profile updated", data: { user } });
+  } catch (error) {
+    console.error("Update me error:", error);
+    res.status(500).json({ success: false, message: "Could not update profile", error: error.message });
+  }
+});
+
+// Upload/replace own profile photo
+router.patch("/me/photo", uploadProfilePhoto.single("photo"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file uploaded" });
+    }
+
+    const user = await User.findById(req.user._id).select("-password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Delete old photo if exists
+    if (user.profilePhoto?.public_id) {
+      try { await deleteFile(user.profilePhoto.public_id); } catch (e) { console.error("Delete old photo error:", e.message); }
+    }
+
+    user.profilePhoto = {
+      url: req.file.path,
+      public_id: req.file.filename,
+    };
+    await user.save({ validateBeforeSave: false });
+
+    res.json({ success: true, message: "Profile photo updated", data: { user } });
+  } catch (error) {
+    console.error("Update photo error:", error);
+    res.status(500).json({ success: false, message: "Could not update profile photo", error: error.message });
   }
 });
 
