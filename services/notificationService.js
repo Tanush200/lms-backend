@@ -36,16 +36,27 @@ try {
   pushConfigured = false;
 }
 
-// Configure Email
+// Configure Email (env-overridable + timeouts/pool)
+const emailService = process.env.EMAIL_SERVICE || "gmail";
+const emailHost = process.env.EMAIL_HOST || (emailService === "gmail" ? "smtp.gmail.com" : undefined);
+const emailPort = Number(process.env.EMAIL_PORT || 587);
+const emailSecure = String(process.env.EMAIL_SECURE || "false").toLowerCase() === "true";
+
 const transporter = nodemailer.createTransport({
-  service: "gmail",
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
+  service: emailService,
+  host: emailHost,
+  port: emailPort,
+  secure: emailSecure,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  pool: true,
+  maxConnections: Number(process.env.EMAIL_MAX_CONNECTIONS || 3),
+  maxMessages: Number(process.env.EMAIL_MAX_MESSAGES || 50),
+  connectionTimeout: Number(process.env.EMAIL_CONNECTION_TIMEOUT || 10000),
+  greetingTimeout: Number(process.env.EMAIL_GREETING_TIMEOUT || 5000),
+  socketTimeout: Number(process.env.EMAIL_SOCKET_TIMEOUT || 10000),
   tls: {
     rejectUnauthorized: false,
   },

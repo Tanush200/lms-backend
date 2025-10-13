@@ -64,6 +64,12 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+
+// Helpful root route -> redirect to health
+app.get("/", (req, res) => {
+  res.redirect("/api/health");
+});
+
 app.use('/api/auth',authRoutes);
 app.use('/api/users',userRoutes);
 
@@ -261,13 +267,16 @@ app.get("/api/test-cloudinary", async (req, res) => {
 });
 
 
+app.get("/", (req, res) => {
+  res.redirect("/api/health");
+});
+
 app.use((req, res, next) => {
   res.status(404).json({
     message: `Route ${req.method} ${req.originalUrl} not found`,
     timestamp: new Date().toISOString(),
   });
 });
-
 
 app.use((err, req, res, next) => {
   console.error("Global Error:", err);
