@@ -63,7 +63,6 @@ const transporter = nodemailer.createTransport({
 });
 
 class NotificationService {
-  // Create notification
   static async createNotification({
     recipientId,
     senderId,

@@ -1,10 +1,9 @@
-// services/emailService.js - EMAIL SERVICE IMPLEMENTATION
+
 
 const nodemailer = require("nodemailer");
 
 class EmailService {
   constructor() {
-    // ✅ CONFIGURE EMAIL TRANSPORTER (env-overridable)
     const service = process.env.EMAIL_SERVICE || "gmail";
     const host = process.env.EMAIL_HOST || (service === "gmail" ? "smtp.gmail.com" : undefined);
     const port = Number(process.env.EMAIL_PORT || 587);
@@ -19,20 +18,17 @@ class EmailService {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
-      // Connection hardening for PaaS (Render)
       pool: true,
       maxConnections: Number(process.env.EMAIL_MAX_CONNECTIONS || 3),
       maxMessages: Number(process.env.EMAIL_MAX_MESSAGES || 50),
-      // Timeouts to fail fast instead of hanging
-      connectionTimeout: Number(process.env.EMAIL_CONNECTION_TIMEOUT || 10000), // 10s
-      greetingTimeout: Number(process.env.EMAIL_GREETING_TIMEOUT || 5000), // 5s
-      socketTimeout: Number(process.env.EMAIL_SOCKET_TIMEOUT || 10000), // 10s
+      connectionTimeout: Number(process.env.EMAIL_CONNECTION_TIMEOUT || 10000), 
+      greetingTimeout: Number(process.env.EMAIL_GREETING_TIMEOUT || 5000), 
+      socketTimeout: Number(process.env.EMAIL_SOCKET_TIMEOUT || 10000),
       tls: {
         rejectUnauthorized: false,
       },
     });
 
-    // Optional verification: skip in production to avoid blocking cold starts
     const shouldVerify = (process.env.NODE_ENV !== "production") && (String(process.env.EMAIL_VERIFY || "true").toLowerCase() === "true");
     if (shouldVerify) {
       this.transporter.verify((error) => {
@@ -45,7 +41,6 @@ class EmailService {
     }
   }
 
-  // ✅ SEND STUDENT LOGIN CREDENTIALS
   async sendStudentCredentials(
     email,
     temporaryPassword,
@@ -94,7 +89,6 @@ LMS Administration Team
     }
   }
 
-  // ✅ EMAIL TEMPLATE FOR CREDENTIALS
   getCredentialsEmailTemplate(studentName, email, temporaryPassword) {
     return `
 <!DOCTYPE html>
@@ -225,7 +219,6 @@ LMS Administration Team
     `;
   }
 
-  // ✅ SEND PASSWORD RESET EMAIL
   async sendPasswordResetEmail(email, resetToken, userName = "User") {
     try {
       const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
@@ -288,7 +281,6 @@ If you did not request this, please ignore this email.
     }
   }
 
-  // ✅ SEND ENROLLMENT NOTIFICATION
   async sendEnrollmentNotification(email, courseName, studentName = "Student") {
     try {
       const mailOptions = {
