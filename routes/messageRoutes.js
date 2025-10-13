@@ -7,6 +7,8 @@ const {
   getStudentsWithParents,
   startConversation,
 } = require('../controllers/messageController');
+const upload = require('../middleware/upload');
+const { uploadFileMessage } = require('../controllers/fileController');
 
 // All routes require authentication
 router.use(protect);
@@ -22,5 +24,22 @@ router.get('/students/:courseId', authorize('teacher', 'admin', 'principal'), ge
 
 // Start new conversation
 router.post('/conversation', authorize('teacher', 'admin', 'principal'), startConversation);
+
+// Wrap upload to catch Multer errors (prevents app crash on invalid formats)
+const wrapMessageUpload = (fieldName) => (req, res, next) => {
+  upload.single(fieldName)(req, res, (err) => {
+    if (err) {
+      console.error(`❌ Message upload error for field "${fieldName}":`, err);
+      return res.status(400).json({
+        success: false,
+        message: 'File upload failed',
+        error: err.message,
+      });
+    }
+    next();
+  });
+};
+
+router.post("/upload", wrapMessageUpload("file"), uploadFileMessage);
 
 module.exports = router;

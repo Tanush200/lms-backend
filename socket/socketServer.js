@@ -176,7 +176,15 @@ const initializeSocket = (server) => {
             await conversation.save();
 
             // Notify both participants so their UIs can update unread badges immediately
-            const participants = conversation.participants?.map((p) => p.toString()) || [];
+            const participants = (conversation.participants || [])
+              .map((p) => {
+                if (!p) return null;
+                if (typeof p === "string") return p;
+                if (p._id) return p._id.toString();
+                if (typeof p.toString === "function") return p.toString();
+                return null;
+              })
+              .filter(Boolean);
             const payload = {
               conversationId: conversation._id.toString(),
               unreadCount: conversation.unreadCount,
