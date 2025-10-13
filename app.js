@@ -52,6 +52,7 @@ const feeReminderRoutes = require("./routes/feeReminderRoutes");
 const schoolRoutes = require("./routes/schoolRoutes");
 const superAdminRoutes = require("./routes/superAdminRoutes");
 const messageRoutes = require("./routes/messageRoutes");
+const notificationRoutes = require("./routes/notificationRoutes"); 
 
 
 app.get("/api/health", (req, res) => {
@@ -97,10 +98,17 @@ app.use("/api/super-admin", superAdminRoutes);
 app.use("/api/messages", messageRoutes);
 
 
+app.use("/api/notifications", notificationRoutes);
 
 
 
 
+app.get("/api/notifications/vapid-public-key", (req, res) => {
+  res.json({
+    success: true,
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+  });
+});
 
 app.get("/api/debug/models", async (req, res) => {
   try {

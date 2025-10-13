@@ -87,6 +87,9 @@ const initializeSocket = (server) => {
           fileName,
           fileSize,
         });
+        const NotificationService = require("../services/notificationService");
+        await NotificationService.notifyNewMessage(message);
+
 
         await message.populate([
           { path: "sender", select: "name email role" },
