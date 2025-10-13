@@ -140,6 +140,8 @@ const userSchema = new mongoose.Schema(
 
     lastLogin: Date,
     passwordChangedAt: Date,
+    passwordResetToken: String,
+    passwordResetExpires: Date,
     createdAt: {
       type: Date,
       default: Date.now,
@@ -210,6 +212,19 @@ userSchema.methods.changedPasswordAfter = function (JWTTimestamp) {
     return JWTTimestamp < changedTimestamp;
   }
   return false;
+};
+
+// Helper: generate password reset token (instance method)
+userSchema.methods.createPasswordResetToken = function () {
+  const crypto = require("crypto");
+  const resetToken = crypto.randomBytes(32).toString("hex");
+  this.passwordResetToken = crypto
+    .createHash("sha256")
+    .update(resetToken)
+    .digest("hex");
+  // 1 hour expiry
+  this.passwordResetExpires = Date.now() + 60 * 60 * 1000;
+  return resetToken;
 };
 
 module.exports = mongoose.model("User", userSchema);

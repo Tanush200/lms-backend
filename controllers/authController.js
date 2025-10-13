@@ -331,6 +331,8 @@
 const User = require("../models/User");
 const { createTokenResponse } = require("../utils/jwt");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const EmailService = require("../services/emailService");
 
 const register = async (req, res) => {
   try {
@@ -691,4 +693,83 @@ module.exports = {
   getMe,
   logout,
   changePassword,
+  // added below
+  requestPasswordReset,
+  resetPassword,
 };
+
+// ================= PASSWORD RESET FLOW =================
+async function requestPasswordReset(req, res) {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email is required" });
+    }
+
+    const user = await User.findOne({ email: String(email).toLowerCase() });
+
+    // Always respond success to prevent user enumeration
+    if (!user) {
+      return res.json({ success: true, message: "If an account exists, a reset email has been sent." });
+    }
+
+    const resetToken = user.createPasswordResetToken();
+    await user.save({ validateBeforeSave: false });
+
+    try {
+      await EmailService.sendPasswordResetEmail(user.email, resetToken, user.name || "User");
+    } catch (e) {
+      // Cleanup token on email failure
+      user.passwordResetToken = undefined;
+      user.passwordResetExpires = undefined;
+      await user.save({ validateBeforeSave: false });
+      return res.status(500).json({ success: false, message: "Failed to send password reset email" });
+    }
+
+    return res.json({ success: true, message: "If an account exists, a reset email has been sent." });
+  } catch (error) {
+    console.error("Request password reset error:", error);
+    res.status(500).json({ success: false, message: "Could not process request", error: error.message });
+  }
+}
+
+async function resetPassword(req, res) {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ success: false, message: "Token and new password are required" });
+    }
+
+    if (String(password).length < 6) {
+      return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+    }
+
+    const hashedToken = crypto.createHash("sha256").update(String(token)).digest("hex");
+
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() },
+    }).select("+password");
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: "Token is invalid or has expired" });
+    }
+
+    user.password = password;
+    user.passwordChangedAt = new Date();
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+
+    // Optional: auto login after reset
+    const tokenData = createTokenResponse(user);
+    user.password = undefined;
+
+    return res.json({ success: true, message: "Password reset successful", auth: tokenData });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ success: false, message: "Could not reset password", error: error.message });
+  }
+}
