@@ -8,19 +8,16 @@ class EmailService {
     this.transporter = nodemailer.createTransport({
       // Option 1: Gmail SMTP
       service: "gmail",
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
       auth: {
-        user: process.env.EMAIL_USER, // your-email@gmail.com
-        pass: process.env.EMAIL_PASS, // your-app-password
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
       },
-
-      // Option 2: Custom SMTP
-      // host: process.env.SMTP_HOST,
-      // port: process.env.SMTP_PORT,
-      // secure: process.env.SMTP_PORT === '465',
-      // auth: {
-      //   user: process.env.SMTP_USER,
-      //   pass: process.env.SMTP_PASS,
-      // },
+      tls: {
+        rejectUnauthorized: false,
+      },
     });
 
     // Verify transporter
