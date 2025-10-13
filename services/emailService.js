@@ -4,30 +4,45 @@ const nodemailer = require("nodemailer");
 
 class EmailService {
   constructor() {
-    // ✅ CONFIGURE EMAIL TRANSPORTER
+    // ✅ CONFIGURE EMAIL TRANSPORTER (env-overridable)
+    const service = process.env.EMAIL_SERVICE || "gmail";
+    const host = process.env.EMAIL_HOST || (service === "gmail" ? "smtp.gmail.com" : undefined);
+    const port = Number(process.env.EMAIL_PORT || 587);
+    const secure = String(process.env.EMAIL_SECURE || "false").toLowerCase() === "true";
+
     this.transporter = nodemailer.createTransport({
-      // Option 1: Gmail SMTP
-      service: "gmail",
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false,
+      service,
+      host,
+      port,
+      secure,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      // Connection hardening for PaaS (Render)
+      pool: true,
+      maxConnections: Number(process.env.EMAIL_MAX_CONNECTIONS || 3),
+      maxMessages: Number(process.env.EMAIL_MAX_MESSAGES || 50),
+      // Timeouts to fail fast instead of hanging
+      connectionTimeout: Number(process.env.EMAIL_CONNECTION_TIMEOUT || 10000), // 10s
+      greetingTimeout: Number(process.env.EMAIL_GREETING_TIMEOUT || 5000), // 5s
+      socketTimeout: Number(process.env.EMAIL_SOCKET_TIMEOUT || 10000), // 10s
       tls: {
         rejectUnauthorized: false,
       },
     });
 
-    // Verify transporter
-    this.transporter.verify((error, success) => {
-      if (error) {
-        console.error("❌ Email transporter verification failed:", error);
-      } else {
-        console.log("✅ Email server is ready to send messages");
-      }
-    });
+    // Optional verification: skip in production to avoid blocking cold starts
+    const shouldVerify = (process.env.NODE_ENV !== "production") && (String(process.env.EMAIL_VERIFY || "true").toLowerCase() === "true");
+    if (shouldVerify) {
+      this.transporter.verify((error) => {
+        if (error) {
+          console.error("❌ Email transporter verification failed:", error);
+        } else {
+          console.log("✅ Email server is ready to send messages");
+        }
+      });
+    }
   }
 
   // ✅ SEND STUDENT LOGIN CREDENTIALS
