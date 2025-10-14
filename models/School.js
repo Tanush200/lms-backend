@@ -91,6 +91,27 @@ const schoolSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  verificationStatus: {
+    type: String,
+    enum: ["pending", "verified", "rejected"],
+    default: "pending",
+  },
+
+  verificationDetails: {
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    verifiedAt: Date,
+    rejectedAt: Date,
+    rejectionReason: String,
+  },
+
+  registrationType: {
+    type: String,
+    enum: ["self_registered", "admin_created"],
+    default: "self_registered",
+  },
   description: {
     type: String,
     trim: true,
@@ -98,6 +119,11 @@ const schoolSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  // Owner admin user created during self-registration
+  owner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -114,7 +140,6 @@ const schoolSchema = new mongoose.Schema({
 });
 
 // Indexes
-schoolSchema.index({ code: 1 });
 schoolSchema.index({ isActive: 1 });
 schoolSchema.index({ name: "text", code: "text" });
 

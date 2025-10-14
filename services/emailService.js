@@ -41,6 +41,29 @@ class EmailService {
     }
   }
 
+  // Generic email sender used across the app
+  async sendEmail({ to, subject, html, text, from }) {
+    try {
+      const mailOptions = {
+        from: {
+          name: "Learning Management System",
+          address: from || process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        },
+        to,
+        subject,
+        html,
+        ...(text ? { text } : {}),
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log("✅ Email sent:", result.messageId, "to:", to);
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error("❌ Failed to send email:", error);
+      throw new Error(`Email sending failed: ${error.message}`);
+    }
+  }
+
   async sendStudentCredentials(
     email,
     temporaryPassword,
@@ -342,4 +365,11 @@ Happy Learning!
   }
 }
 
-module.exports = new EmailService();
+// Create a single shared instance
+const emailService = new EmailService();
+
+// Default export: the instance
+module.exports = emailService;
+
+// Named export: bound helper for destructuring usage
+module.exports.sendEmail = emailService.sendEmail.bind(emailService);

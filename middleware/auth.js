@@ -1,5 +1,6 @@
 // const { verifyToken, extractTokenFromHeader } = require("../utils/jwt");
 // const User = require("../models/User");
+// const School = require("../models/School");
 
 // const protect = async (req, res, next) => {
 //   try {
@@ -17,7 +18,10 @@
 
 //     const decoded = verifyToken(token);
 
-//     const user = await User.findById(decoded.id).select("-password");
+//     // Populate school information along with user
+//     const user = await User.findById(decoded.id)
+//       .select("-password")
+//       .populate("school", "name code logo isActive");
 
 //     if (!user) {
 //       return res.status(401).json({
@@ -33,7 +37,15 @@
 //       });
 //     }
 
-//     if (user.changedPasswordAfter(decoded.iat)) {
+//     // Check if user's school is active (only for non-super_admin)
+//     if (user.role !== "super_admin" && user.school && !user.school.isActive) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Your school has been deactivated. Please contact support.",
+//       });
+//     }
+
+//     if (user.changedPasswordAfter && user.changedPasswordAfter(decoded.iat)) {
 //       return res.status(401).json({
 //         success: false,
 //         message: "Password was changed recently. Please login again.",
@@ -59,6 +71,12 @@
 //         message: "Please login to access this resource",
 //       });
 //     }
+
+//     // Super admin can access everything
+//     if (req.user.role === "super_admin") {
+//       return next();
+//     }
+
 //     if (!roles.includes(req.user.role)) {
 //       return res.status(403).json({
 //         success: false,
@@ -71,17 +89,24 @@
 //   };
 // };
 
-
-
 // const optionalAuth = async (req, res, next) => {
 //   try {
 //     if (req.headers.authorization) {
 //       const token = extractTokenFromHeader(req.headers.authorization);
 //       const decoded = verifyToken(token);
-//       const user = await User.findById(decoded.id).select("-password");
+//       const user = await User.findById(decoded.id)
+//         .select("-password")
+//         .populate("school", "name code logo isActive");
 
 //       if (user && user.isActive) {
-//         req.user = user;
+//         // Check school active status
+//         if (
+//           user.role === "super_admin" ||
+//           !user.school ||
+//           user.school.isActive
+//         ) {
+//           req.user = user;
+//         }
 //       }
 //     }
 //     next();
@@ -89,7 +114,6 @@
 //     next();
 //   }
 // };
-
 
 // const ownerOrAdmin = (req, res, next) => {
 //   if (!req.user) {
@@ -101,6 +125,12 @@
 
 //   const resourceUserId = req.params.userId || req.body.userId || req.params.id;
 
+//   // Super admin has access to everything
+//   if (req.user.role === "super_admin") {
+//     return next();
+//   }
+
+//   // School admin can access resources from their school
 //   if (req.user.role === "admin" || req.user._id.toString() === resourceUserId) {
 //     return next();
 //   }
@@ -111,19 +141,80 @@
 //   });
 // };
 
+// // NEW: Middleware to check if user belongs to a specific school
+// const belongsToSchool = (schoolIdParam = "schoolId") => {
+//   return (req, res, next) => {
+//     if (!req.user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Authentication required",
+//       });
+//     }
+
+//     // Super admin bypasses school check
+//     if (req.user.role === "super_admin") {
+//       return next();
+//     }
+
+//     const schoolId = req.params[schoolIdParam] || req.body.school;
+
+//     if (!schoolId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "School ID is required",
+//       });
+//     }
+
+//     // Check if user belongs to the specified school
+//     if (req.user.school._id.toString() !== schoolId.toString()) {
+//       return res.status(403).json({
+//         success: false,
+//         message:
+//           "Access denied. You can only access resources from your school.",
+//       });
+//     }
+
+//     next();
+//   };
+// };
+
+// // NEW: Middleware to ensure user has a school (not super_admin)
+// const requireSchool = (req, res, next) => {
+//   if (!req.user) {
+//     return res.status(401).json({
+//       success: false,
+//       message: "Authentication required",
+//     });
+//   }
+
+//   if (req.user.role === "super_admin") {
+//     return next();
+//   }
+
+//   if (!req.user.school) {
+//     return res.status(403).json({
+//       success: false,
+//       message: "User must be associated with a school",
+//     });
+//   }
+
+//   next();
+// };
 
 // module.exports = {
-//     protect,
-//     authorize,
-//     optionalAuth,
-//     ownerOrAdmin
-// }
-
+//   protect,
+//   authorize,
+//   optionalAuth,
+//   ownerOrAdmin,
+//   belongsToSchool,
+//   requireSchool,
+// };
 
 
 
 const { verifyToken, extractTokenFromHeader } = require("../utils/jwt");
 const User = require("../models/User");
+const School = require("../models/School");
 
 const protect = async (req, res, next) => {
   try {
@@ -144,7 +235,7 @@ const protect = async (req, res, next) => {
     // Populate school information along with user
     const user = await User.findById(decoded.id)
       .select("-password")
-      .populate("school", "name code logo isActive");
+      .populate("school", "name code logo isActive verificationStatus");
 
     if (!user) {
       return res.status(401).json({
@@ -160,12 +251,35 @@ const protect = async (req, res, next) => {
       });
     }
 
-    // Check if user's school is active (only for non-super_admin)
-    if (user.role !== "super_admin" && user.school && !user.school.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "Your school has been deactivated. Please contact support.",
-      });
+    // ✅ Check school verification status (for non-super admins)
+    if (user.role !== "super_admin" && user.school) {
+      // Check if school is active
+      if (!user.school.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: "Your school has been deactivated. Please contact support.",
+        });
+      }
+
+      // ✅ Check verification status
+      if (user.school.verificationStatus === "pending") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Your school registration is pending verification. Please wait for approval.",
+          status: "pending_verification",
+          schoolName: user.school.name,
+        });
+      }
+
+      if (user.school.verificationStatus === "rejected") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Your school registration was rejected. Please contact support.",
+          status: "rejected",
+        });
+      }
     }
 
     if (user.changedPasswordAfter && user.changedPasswordAfter(decoded.iat)) {
@@ -219,14 +333,15 @@ const optionalAuth = async (req, res, next) => {
       const decoded = verifyToken(token);
       const user = await User.findById(decoded.id)
         .select("-password")
-        .populate("school", "name code logo isActive");
+        .populate("school", "name code logo isActive verificationStatus");
 
       if (user && user.isActive) {
-        // Check school active status
+        // Check school active status and verification
         if (
           user.role === "super_admin" ||
           !user.school ||
-          user.school.isActive
+          (user.school.isActive &&
+            user.school.verificationStatus === "verified")
         ) {
           req.user = user;
         }
@@ -264,7 +379,6 @@ const ownerOrAdmin = (req, res, next) => {
   });
 };
 
-// NEW: Middleware to check if user belongs to a specific school
 const belongsToSchool = (schoolIdParam = "schoolId") => {
   return (req, res, next) => {
     if (!req.user) {
@@ -301,7 +415,6 @@ const belongsToSchool = (schoolIdParam = "schoolId") => {
   };
 };
 
-// NEW: Middleware to ensure user has a school (not super_admin)
 const requireSchool = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({
