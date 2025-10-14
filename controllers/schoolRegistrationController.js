@@ -437,6 +437,7 @@
 
 const School = require("../models/School");
 const User = require("../models/User");
+const Subscription = require("../models/Subscription");
 const bcrypt = require("bcryptjs");
 const { sendEmail } = require("../services/emailService");
 
@@ -553,6 +554,21 @@ const registerSchool = async (req, res) => {
     school.owner = schoolAdmin._id;
     await school.save();
 
+    // Create inactive subscription
+    const subscription = await Subscription.create({
+      school: school._id,
+      status: "inactive",
+      accessRestricted: true,
+      restrictionReason: "Pending verification and payment",
+      amount: 9999,
+      plan: "monthly",
+    });
+
+    // Link subscription to school
+    school.subscriptionId = subscription._id;
+    school.subscriptionStatus = "inactive";
+    await school.save();
+
     // Send verification request email to Super Admin
     await sendVerificationRequestEmail(school, schoolAdmin);
 
@@ -633,17 +649,26 @@ const approveSchool = async (req, res) => {
 
     // Update school verification status
     school.verificationStatus = "verified";
-    school.isActive = true; // ✅ Activate school immediately
+    school.isActive = true; // ✅ Activate school for login
+    school.subscriptionStatus = "pending_payment"; // ⚠️ But subscription is pending
     school.verificationDetails = {
       verifiedBy: req.user._id,
       verifiedAt: new Date(),
     };
     await school.save();
 
-    // Activate school admin user
+    // Activate school admin user (so they can login)
     await User.findByIdAndUpdate(school.owner._id, {
       isActive: true,
     });
+
+    // Update subscription status to pending_payment
+    const subscription = await Subscription.findOne({ school: school._id });
+    if (subscription) {
+      subscription.status = "pending_payment";
+      subscription.restrictionReason = "Please complete subscription payment";
+      await subscription.save();
+    }
 
     // Send approval email to school admin
     await sendApprovalEmail(school, note);
@@ -790,14 +815,14 @@ const sendApprovalEmail = async (school, note) => {
 
     await sendEmail({
       to: admin.email,
-      subject: "🎉 Your School Has Been Verified!",
+      subject: "🎉 Your School Has Been Verified - Please Subscribe!",
       html: `
         <h2>Congratulations! Your School is Verified</h2>
         <p>Dear ${admin.name},</p>
         
         <p>Great news! Your school <strong>${
           school.name
-        }</strong> has been successfully verified and activated.</p>
+        }</strong> has been successfully verified.</p>
         
         ${
           note
@@ -810,10 +835,19 @@ const sendApprovalEmail = async (school, note) => {
             : ""
         }
         
-        <div style="background: #D1FAE5; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10B981;">
-          <p><strong>✅ Your account is now active!</strong></p>
-          <p>You can now log in and start using all platform features.</p>
+        <div style="background: #FEF3C7; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #F59E0B;">
+          <p><strong>⚠️ Action Required: Complete Subscription</strong></p>
+          <p>To start using the platform, you need to subscribe to our monthly plan.</p>
+          <p><strong>Subscription Plan:</strong> ₹9,999/month</p>
         </div>
+        
+        <p><strong>Next Steps:</strong></p>
+        <ol>
+          <li>Log in to your account using the credentials below</li>
+          <li>You will be redirected to the subscription page</li>
+          <li>Complete the payment via Dodo Payments</li>
+          <li>Start creating teachers, students, and parents!</li>
+        </ol>
         
         <p><strong>Your Login Credentials:</strong></p>
         <ul>
@@ -823,7 +857,7 @@ const sendApprovalEmail = async (school, note) => {
         
         <a href="${process.env.FRONTEND_URL}/login" 
            style="display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; margin-top: 16px;">
-          Login Now
+          Login & Subscribe Now
         </a>
         
         <p style="margin-top: 20px;">Welcome to the platform! 🎉</p>

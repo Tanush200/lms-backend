@@ -129,6 +129,18 @@ const schoolSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
   },
+  
+  // Subscription status
+  subscriptionStatus: {
+    type: String,
+    enum: ["inactive", "active", "expired", "cancelled", "pending_payment"],
+    default: "inactive",
+  },
+  subscriptionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Subscription",
+  },
+  
   createdAt: {
     type: Date,
     default: Date.now,
