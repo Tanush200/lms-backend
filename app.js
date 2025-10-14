@@ -139,13 +139,14 @@ app.use("/api/subscriptions", protect, subscriptionRoutes);
 // ========================================
 // PROTECTED ROUTES (With Subscription Check)
 // ========================================
-app.use("/api/users", protect, userRoutes);
+// ✅ These routes require ACTIVE subscription
+app.use("/api/users", protect, checkSubscriptionAccess, userRoutes);
 
-app.use("/api/courses", protect, courseRoutes);
-app.use("/api/enrollments", protect, enrollmentRoutes);
+app.use("/api/courses", protect, checkSubscriptionAccess, courseRoutes);
+app.use("/api/enrollments", protect, checkSubscriptionAccess, enrollmentRoutes);
 
-app.use("/api/quizzes", protect, quizRoutes);
-app.use("/api/questions", protect, questionRoutes);
+app.use("/api/quizzes", protect, checkSubscriptionAccess, quizRoutes);
+app.use("/api/questions", protect, checkSubscriptionAccess, questionRoutes);
 
 // Quiz attempt routes
 app.use((req, res, next) => {
@@ -165,48 +166,54 @@ app.use((req, res, next) => {
 app.use(
   "/api/programming-problems",
   protect,
+  checkSubscriptionAccess,
   programmingProblemRoutes
 );
 app.use(
   "/api/code-submissions",
   protect,
+  checkSubscriptionAccess,
   codeSubmissionRoutes
 );
-app.use("/api/judge0", protect, judge0Routes);
+app.use("/api/judge0", protect, checkSubscriptionAccess, judge0Routes);
 
-app.use("/api/admin", protect, adminRoutes);
+app.use("/api/admin", protect, checkSubscriptionAccess, adminRoutes);
 app.use(
   "/api/student-management",
   protect,
+  checkSubscriptionAccess,
   studentManagementRoutes
 );
 
 app.use(
   "/api/questions/import",
   protect,
+  checkSubscriptionAccess,
   questionImportRoutes
 );
 
-app.use("/api/parent", protect, parentRoutes);
-app.use("/api/parents", protect, parentRoutes);
+app.use("/api/parent", protect, checkSubscriptionAccess, parentRoutes);
+app.use("/api/parents", protect, checkSubscriptionAccess, parentRoutes);
 
-app.use("/api/notices", protect, noticeRoutes);
+app.use("/api/notices", protect, checkSubscriptionAccess, noticeRoutes);
 
-app.use("/api/attendance", protect, attendanceRoutes);
+app.use("/api/attendance", protect, checkSubscriptionAccess, attendanceRoutes);
 
 app.use(
   "/api/fee-reminders",
   protect,
+  checkSubscriptionAccess,
   feeReminderRoutes
 );
 
-app.use("/api/schools", protect, schoolRoutes);
-app.use("/api/super-admin", superAdminRoutes);
-app.use("/api/messages", protect, messageRoutes);
+app.use("/api/schools", protect, checkSubscriptionAccess, schoolRoutes);
+app.use("/api/super-admin", superAdminRoutes); // Super admin bypasses subscription check
+app.use("/api/messages", protect, checkSubscriptionAccess, messageRoutes);
 
 app.use(
   "/api/notifications",
   protect,
+  checkSubscriptionAccess,
   notificationRoutes
 );
 

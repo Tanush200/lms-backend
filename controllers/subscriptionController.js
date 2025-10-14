@@ -1,6 +1,7 @@
 const Subscription = require("../models/Subscription");
 const School = require("../models/School");
 const { sendEmail } = require("../services/emailService");
+const axios = require("axios");
 
 // @desc    Get subscription details for a school
 // @route   GET /api/subscriptions/my-subscription
@@ -137,29 +138,86 @@ const initiatePayment = async (req, res) => {
       await subscription.save();
     }
 
-    // Generate Dodo Payment link/details
-    // In a real implementation, you would integrate with Dodo Payments API here
-    const paymentDetails = {
-      subscriptionId: subscription._id,
-      schoolId: school._id,
-      schoolName: school.name,
-      schoolCode: school.code,
-      amount: subscription.amount,
-      currency: "INR",
-      plan: plan,
-      // This would be the actual Dodo Payments checkout URL
-      paymentUrl: `${process.env.DODO_PAYMENT_URL || "https://dodopayments.com/checkout"}?ref=${subscription._id}`,
-      // Callback URLs
-      successUrl: `${process.env.FRONTEND_URL}/subscription/success`,
-      cancelUrl: `${process.env.FRONTEND_URL}/subscription/cancel`,
-      webhookUrl: `${process.env.BACKEND_URL}/api/subscriptions/webhook`,
-    };
+    // Create Dodo Payments checkout session
+    try {
+      const dodoResponse = await axios.post(
+        `${process.env.DODO_BASE_URL}/v1/payment_intents`,
+        {
+          amount: subscription.amount * 100, // Convert to smallest currency unit (paise)
+          currency: "INR",
+          customer: {
+            email: school.email,
+            name: school.name,
+          },
+          metadata: {
+            subscriptionId: subscription._id.toString(),
+            schoolId: school._id.toString(),
+            schoolName: school.name,
+            schoolCode: school.code,
+            plan: plan,
+          },
+          success_url: `${process.env.FRONTEND_URL}/subscription/success`,
+          cancel_url: `${process.env.FRONTEND_URL}/subscription/cancel`,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.DODO_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
-    res.json({
-      success: true,
-      message: "Payment initiated successfully",
-      data: paymentDetails,
-    });
+      console.log("✅ Dodo Payments session created:", dodoResponse.data);
+
+      const paymentDetails = {
+        subscriptionId: subscription._id,
+        schoolId: school._id,
+        schoolName: school.name,
+        schoolCode: school.code,
+        amount: subscription.amount,
+        currency: "INR",
+        plan: plan,
+        paymentUrl: dodoResponse.data.payment_link || dodoResponse.data.url,
+        paymentIntentId: dodoResponse.data.payment_intent_id || dodoResponse.data.id,
+        successUrl: `${process.env.FRONTEND_URL}/subscription/success`,
+        cancelUrl: `${process.env.FRONTEND_URL}/subscription/cancel`,
+        webhookUrl: `${process.env.BACKEND_URL}/api/subscriptions/webhook`,
+      };
+
+      res.json({
+        success: true,
+        message: "Payment initiated successfully",
+        data: paymentDetails,
+      });
+    } catch (dodoError) {
+      console.error("❌ Dodo Payments API error:", dodoError.response?.data || dodoError.message);
+      
+      // Fallback: Return test payment URL for development
+      if (process.env.NODE_ENV === "development") {
+        console.log("⚠️ Using test payment URL for development");
+        const paymentDetails = {
+          subscriptionId: subscription._id,
+          schoolId: school._id,
+          schoolName: school.name,
+          schoolCode: school.code,
+          amount: subscription.amount,
+          currency: "INR",
+          plan: plan,
+          paymentUrl: `${process.env.FRONTEND_URL}/subscription/test-payment?subscriptionId=${subscription._id}&amount=${subscription.amount}`,
+          successUrl: `${process.env.FRONTEND_URL}/subscription/success`,
+          cancelUrl: `${process.env.FRONTEND_URL}/subscription/cancel`,
+          webhookUrl: `${process.env.BACKEND_URL}/api/subscriptions/webhook`,
+        };
+
+        return res.json({
+          success: true,
+          message: "Test payment initiated (development mode)",
+          data: paymentDetails,
+        });
+      }
+
+      throw dodoError;
+    }
   } catch (error) {
     console.error("Initiate payment error:", error);
     res.status(500).json({
