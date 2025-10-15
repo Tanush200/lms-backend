@@ -11,9 +11,9 @@ const {
 const { protect, authorize } = require("../middleware/auth");
 
 // Protected routes (School Admin)
-router.get("/my-subscription", getMySubscription);
-router.get("/status", getSubscriptionStatus);
-router.post("/initiate-payment", initiatePayment);
+router.get("/my-subscription", protect, getMySubscription);
+router.get("/status", protect, getSubscriptionStatus);
+router.post("/initiate-payment", protect, initiatePayment);
 
 // Super Admin routes
 router.get("/all", authorize("super_admin"), getAllSubscriptions);
