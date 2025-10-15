@@ -50,6 +50,10 @@ const subscriptionSchema = new mongoose.Schema(
       currency: String,
     },
     
+    // Dodo Payments IDs
+    dodoSubscriptionId: String,
+    dodoPaymentId: String,
+    
     // Payment history
     paymentHistory: [
       {

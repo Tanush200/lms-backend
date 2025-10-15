@@ -179,7 +179,7 @@ const initiatePayment = async (req, res) => {
             schoolCode: school.code,
             plan: plan,
           },
-          redirect_url: `${process.env.FRONTEND_URL}/subscription/success`,
+          redirect_url: `${process.env.FRONTEND_URL}/dashboard?payment_return=true`,
         },
         {
           headers: {
@@ -191,6 +191,11 @@ const initiatePayment = async (req, res) => {
 
       console.log("✅ Dodo Payments session created:", dodoResponse.data);
 
+      // Store Dodo IDs in subscription for later verification
+      subscription.dodoSubscriptionId = dodoResponse.data.subscription_id;
+      subscription.dodoPaymentId = dodoResponse.data.payment_id || dodoResponse.data.id;
+      await subscription.save();
+
       const paymentDetails = {
         subscriptionId: subscription._id,
         schoolId: school._id,
@@ -201,7 +206,7 @@ const initiatePayment = async (req, res) => {
         plan: plan,
         paymentUrl: dodoResponse.data.payment_link,
         dodoSubscriptionId: dodoResponse.data.subscription_id,
-        dodoPaymentId: dodoResponse.data.payment_id,
+        dodoPaymentId: dodoResponse.data.payment_id || dodoResponse.data.id,
         successUrl: `${process.env.FRONTEND_URL}/subscription/success`,
         cancelUrl: `${process.env.FRONTEND_URL}/subscription/cancel`,
         webhookUrl: `${process.env.BACKEND_URL}/api/subscriptions/webhook`,
@@ -249,25 +254,49 @@ const initiatePayment = async (req, res) => {
 // @access  Public (Webhook)
 const handlePaymentWebhook = async (req, res) => {
   try {
-    console.log("📥 Received payment webhook:", req.body);
+    console.log("📥 Received Dodo Payments webhook:", JSON.stringify(req.body, null, 2));
 
-    const {
-      subscriptionId,
-      transactionId,
-      status,
-      amount,
-      currency,
-      paymentMethod,
-      schoolId,
-    } = req.body;
+    const webhookData = req.body;
+    
+    // Dodo Payments webhook structure
+    const eventType = webhookData.event_type || webhookData.type;
+    const subscriptionData = webhookData.subscription || webhookData.data?.subscription || webhookData;
+    const paymentData = webhookData.payment || webhookData.data?.payment || webhookData;
+    
+    console.log("🔍 Event Type:", eventType);
+    console.log("🔍 Subscription Data:", subscriptionData);
+    console.log("🔍 Payment Data:", paymentData);
 
-    // Verify webhook signature (implement based on Dodo Payments documentation)
-    // const isValid = verifyWebhookSignature(req);
-    // if (!isValid) {
-    //   return res.status(401).json({ success: false, message: "Invalid signature" });
-    // }
+    // Extract metadata (contains our custom data)
+    const metadata = subscriptionData.metadata || paymentData.metadata || {};
+    const subscriptionId = metadata.subscriptionId;
+    const schoolId = metadata.schoolId;
+    const plan = metadata.plan;
 
-    if (status === "success" || status === "completed") {
+    console.log("🔍 Extracted Metadata:", { subscriptionId, schoolId, plan });
+
+    if (!subscriptionId) {
+      console.error("❌ No subscriptionId in webhook metadata");
+      return res.status(400).json({
+        success: false,
+        message: "Missing subscriptionId in webhook",
+      });
+    }
+
+    // Check if payment is successful
+    const paymentStatus = paymentData.status || subscriptionData.status;
+    const isSuccessful = 
+      paymentStatus === "active" || 
+      paymentStatus === "paid" || 
+      paymentStatus === "completed" ||
+      paymentStatus === "success" ||
+      eventType === "subscription.activated" ||
+      eventType === "payment.succeeded";
+
+    console.log("💰 Payment Status:", paymentStatus);
+    console.log("✅ Is Successful:", isSuccessful);
+
+    if (isSuccessful) {
       // Find subscription
       const subscription = await Subscription.findById(subscriptionId);
       if (!subscription) {
@@ -278,13 +307,17 @@ const handlePaymentWebhook = async (req, res) => {
         });
       }
 
+      console.log("📋 Found subscription:", subscription._id);
+
       // Activate subscription
       const paymentDetails = {
-        transactionId,
-        amount,
-        currency: currency || "INR",
-        paymentMethod: paymentMethod || "online",
+        transactionId: paymentData.payment_id || paymentData.id || subscriptionData.subscription_id || `DODO_${Date.now()}`,
+        amount: subscription.amount,
+        currency: "INR",
+        paymentMethod: "dodo_payments",
       };
+
+      console.log("💳 Payment Details:", paymentDetails);
 
       await Subscription.activateSubscription(subscription.school, paymentDetails);
 
@@ -300,29 +333,29 @@ const handlePaymentWebhook = async (req, res) => {
         await sendSubscriptionConfirmationEmail(school, subscription);
       }
 
-      console.log("✅ Subscription activated successfully");
+      console.log("✅ Subscription activated successfully for school:", subscription.school);
 
       return res.json({
         success: true,
         message: "Payment processed successfully",
       });
-    } else if (status === "failed") {
+    } else if (paymentStatus === "failed" || paymentStatus === "cancelled") {
       // Handle failed payment
       const subscription = await Subscription.findById(subscriptionId);
       if (subscription) {
         subscription.status = "inactive";
         subscription.paymentHistory.push({
-          transactionId,
-          amount,
-          currency: currency || "INR",
+          transactionId: paymentData.payment_id || paymentData.id || `FAILED_${Date.now()}`,
+          amount: subscription.amount,
+          currency: "INR",
           status: "failed",
           paidAt: new Date(),
-          paymentMethod,
+          paymentMethod: "dodo_payments",
         });
         await subscription.save();
       }
 
-      console.log("❌ Payment failed");
+      console.log("❌ Payment failed for subscription:", subscriptionId);
 
       return res.json({
         success: true,
@@ -330,6 +363,7 @@ const handlePaymentWebhook = async (req, res) => {
       });
     }
 
+    console.log("ℹ️ Webhook received but no action taken. Status:", paymentStatus);
     res.json({ success: true, message: "Webhook received" });
   } catch (error) {
     console.error("❌ Webhook error:", error);
@@ -475,6 +509,214 @@ const sendSubscriptionConfirmationEmail = async (school, subscription) => {
   }
 };
 
+// @desc    Verify and activate payment after redirect
+// @route   POST /api/subscriptions/verify-payment
+// @access  Private (School Admin)
+const verifyAndActivatePayment = async (req, res) => {
+  try {
+    const schoolId = req.user.school;
+
+    console.log("🔍 Verifying payment for school:", schoolId);
+
+    // Find the subscription
+    let subscription = await Subscription.findOne({ school: schoolId });
+    
+    if (!subscription) {
+      return res.status(404).json({
+        success: false,
+        message: "Subscription not found",
+      });
+    }
+
+    // If already active, return success
+    if (subscription.status === "active" && !subscription.accessRestricted) {
+      return res.json({
+        success: true,
+        message: "Subscription already active",
+        data: subscription,
+      });
+    }
+
+    // If no Dodo IDs, can't verify
+    if (!subscription.dodoSubscriptionId) {
+      return res.json({
+        success: false,
+        message: "No pending payment to verify",
+        data: subscription,
+      });
+    }
+
+    console.log("🔍 Dodo Subscription ID:", subscription.dodoSubscriptionId);
+    console.log("🔍 Dodo Payment ID:", subscription.dodoPaymentId);
+
+    // Check payment status with Dodo Payments API
+    try {
+      // Try to get subscription details
+      const dodoResponse = await axios.get(
+        `${process.env.DODO_BASE_URL}/subscriptions/${subscription.dodoSubscriptionId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.DODO_SECRET_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      console.log("📥 Dodo Subscription Response:", JSON.stringify(dodoResponse.data, null, 2));
+
+      // Also try to get payment details if payment ID exists
+      let paymentResponse = null;
+      if (subscription.dodoPaymentId) {
+        try {
+          paymentResponse = await axios.get(
+            `${process.env.DODO_BASE_URL}/payments/${subscription.dodoPaymentId}`,
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.DODO_SECRET_KEY}`,
+                "Content-Type": "application/json",
+              },
+            }
+          );
+          console.log("📥 Dodo Payment Response:", JSON.stringify(paymentResponse.data, null, 2));
+        } catch (paymentError) {
+          console.log("⚠️ Could not fetch payment details:", paymentError.message);
+        }
+      }
+
+      // Check both subscription status and payment status
+      const subscriptionStatus = dodoResponse.data.status;
+      const paymentStatus = paymentResponse?.data?.status || dodoResponse.data.payment?.status || dodoResponse.data.payment_status;
+      
+      console.log("🔍 Subscription Status:", subscriptionStatus);
+      console.log("🔍 Payment Status:", paymentStatus);
+      
+      // Check if payment is successful - be more lenient with status checks
+      const isPaymentSuccessful = 
+        subscriptionStatus === "active" || 
+        subscriptionStatus === "paid" || 
+        subscriptionStatus === "completed" ||
+        subscriptionStatus === "trialing" ||
+        paymentStatus === "paid" ||
+        paymentStatus === "succeeded" ||
+        paymentStatus === "completed" ||
+        paymentStatus === "success" ||
+        dodoResponse.data.paid === true ||
+        paymentResponse?.data?.paid === true;
+      
+      console.log("✅ Is Payment Successful:", isPaymentSuccessful);
+      
+      // If payment is successful, activate subscription
+      if (isPaymentSuccessful) {
+        // Activate subscription
+        const paymentDetails = {
+          transactionId: subscription.dodoPaymentId || subscription.dodoSubscriptionId,
+          amount: subscription.amount,
+          currency: "INR",
+          paymentMethod: "dodo_payments",
+        };
+
+        await Subscription.activateSubscription(schoolId, paymentDetails);
+
+        // Update school status
+        await School.findByIdAndUpdate(schoolId, {
+          subscriptionStatus: "active",
+          subscriptionId: subscription._id,
+        });
+
+        // Send confirmation email
+        const school = await School.findById(schoolId).populate("owner");
+        if (school && school.owner) {
+          await sendSubscriptionConfirmationEmail(school, subscription);
+        }
+
+        // Fetch updated subscription
+        subscription = await Subscription.findOne({ school: schoolId });
+
+        console.log("✅ Subscription activated via verification");
+
+        return res.json({
+          success: true,
+          message: "Payment verified and subscription activated",
+          data: subscription,
+        });
+      } else {
+        console.log("⏳ Payment still pending.");
+        console.log("   Subscription Status:", subscriptionStatus);
+        console.log("   Payment Status:", paymentStatus);
+        
+        return res.json({
+          success: false,
+          message: `Payment not completed yet. Status: ${subscriptionStatus || paymentStatus || 'unknown'}`,
+          subscriptionStatus: subscriptionStatus,
+          paymentStatus: paymentStatus,
+          data: subscription,
+          hint: "If you've completed the payment, please wait a few minutes and try again, or contact support.",
+        });
+      }
+    } catch (dodoError) {
+      console.error("❌ Dodo API verification error:", dodoError.response?.data || dodoError.message);
+      
+      // If we can't verify with Dodo, return current subscription status
+      return res.json({
+        success: false,
+        message: "Unable to verify payment status with Dodo Payments",
+        error: dodoError.response?.data || dodoError.message,
+        currentStatus: subscription.status,
+        data: subscription,
+      });
+    }
+  } catch (error) {
+    console.error("Verify payment error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to verify payment",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Debug subscription (temporary - for testing)
+// @route   GET /api/subscriptions/debug
+// @access  Private (School Admin)
+const debugSubscription = async (req, res) => {
+  try {
+    const schoolId = req.user.school;
+    const subscription = await Subscription.findOne({ school: schoolId });
+    
+    if (!subscription) {
+      return res.json({
+        success: false,
+        message: "No subscription found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        _id: subscription._id,
+        status: subscription.status,
+        plan: subscription.plan,
+        amount: subscription.amount,
+        dodoSubscriptionId: subscription.dodoSubscriptionId,
+        dodoPaymentId: subscription.dodoPaymentId,
+        accessRestricted: subscription.accessRestricted,
+        startDate: subscription.startDate,
+        endDate: subscription.endDate,
+        paymentDetails: subscription.paymentDetails,
+        createdAt: subscription.createdAt,
+        updatedAt: subscription.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Debug subscription error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch subscription debug info",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getMySubscription,
   getSubscriptionStatus,
@@ -482,4 +724,6 @@ module.exports = {
   handlePaymentWebhook,
   manuallyActivateSubscription,
   getAllSubscriptions,
+  verifyAndActivatePayment,
+  debugSubscription,
 };
