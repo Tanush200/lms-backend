@@ -623,16 +623,21 @@ const verifyAndActivatePayment = async (req, res) => {
           subscriptionId: subscription._id,
         });
 
-        // Send confirmation email
+        // Fetch updated subscription to confirm activation
+        subscription = await Subscription.findOne({ school: schoolId });
+        
+        console.log("✅ Subscription activated via verification");
+        console.log("📋 Updated subscription status:", subscription.status);
+        console.log("📋 Access restricted:", subscription.accessRestricted);
+        console.log("📋 End date:", subscription.endDate);
+
+        // Send confirmation email (async, don't wait)
         const school = await School.findById(schoolId).populate("owner");
         if (school && school.owner) {
-          await sendSubscriptionConfirmationEmail(school, subscription);
+          sendSubscriptionConfirmationEmail(school, subscription).catch(err => 
+            console.error("Email send error:", err)
+          );
         }
-
-        // Fetch updated subscription
-        subscription = await Subscription.findOne({ school: schoolId });
-
-        console.log("✅ Subscription activated via verification");
 
         return res.json({
           success: true,
