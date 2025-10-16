@@ -92,6 +92,7 @@ const messageRoutes = require("./routes/messageRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const subscriptionRoutes = require("./routes/subscriptionRoutes");
 const schoolRegistrationRoutes = require("./routes/schoolRegistrationRoutes");
+const academicCalendarRoutes = require("./routes/academicCalendarRoutes");
 
 // ========================================
 // IMPORT MIDDLEWARE
@@ -147,21 +148,7 @@ app.use("/api/enrollments", protect, checkSubscriptionAccess, enrollmentRoutes);
 
 app.use("/api/quizzes", protect, checkSubscriptionAccess, quizRoutes);
 app.use("/api/questions", protect, checkSubscriptionAccess, questionRoutes);
-
-// Quiz attempt routes
-app.use((req, res, next) => {
-  const p = req.path || "";
-  const isQuizPath =
-    p.startsWith("/api/quizzes") ||
-    p.startsWith("/api/quiz-attempts") ||
-    p.startsWith("/api/students/");
-
-  if (!isQuizPath) return next();
-
-  return protect(req, res, () =>
-    checkSubscriptionAccess(req, res, () => quizAttemptRoutes(req, res, next))
-  );
-});
+app.use("/api", protect, checkSubscriptionAccess, quizAttemptRoutes);
 
 app.use(
   "/api/programming-problems",
@@ -215,6 +202,12 @@ app.use(
   protect,
   checkSubscriptionAccess,
   notificationRoutes
+);
+app.use(
+  "/api/academic-calendar",
+  protect,
+  checkSubscriptionAccess,
+  academicCalendarRoutes
 );
 
 // ========================================
