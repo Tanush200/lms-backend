@@ -256,13 +256,33 @@ class Judge0Service {
    */
   async testExample(code, language, problemId, exampleIndex) {
     try {
+      console.log(`🔍 Finding problem ${problemId}...`);
       const problem = await ProgrammingProblem.findById(problemId);
-      if (!problem || !problem.examples[exampleIndex]) {
-        throw new Error("Example not found");
+      
+      if (!problem) {
+        throw new Error(`Problem ${problemId} not found`);
+      }
+
+      if (!problem.examples || problem.examples.length === 0) {
+        throw new Error("Problem has no examples");
+      }
+
+      if (!problem.examples[exampleIndex]) {
+        throw new Error(`Example index ${exampleIndex} not found. Problem has ${problem.examples.length} examples.`);
       }
 
       const example = problem.examples[exampleIndex];
+      console.log(`📝 Testing with example ${exampleIndex}:`, {
+        input: example.input?.substring(0, 50),
+        expectedOutput: example.output?.substring(0, 50)
+      });
+
       const judge0Id = problem.getJudge0Id(language);
+      if (!judge0Id) {
+        throw new Error(`Language ${language} not supported for this problem`);
+      }
+
+      console.log(`🚀 Submitting to Judge0 with language ID: ${judge0Id}`);
 
       const submissionResult = await this.submitToJudge0(
         code,
@@ -276,11 +296,14 @@ class Judge0Service {
         0
       );
 
+      console.log(`⏳ Polling for result with token: ${submissionResult.token}`);
       const result = await this.pollForResult(submissionResult.token);
 
+      console.log(`✅ Test completed with status: ${result.status?.description}`);
       return this.formatTestResult(result, example.input, example.output);
     } catch (error) {
-      console.error("Example test error:", error);
+      console.error("❌ Example test error:", error.message);
+      console.error("Error stack:", error.stack);
       throw error;
     }
   }

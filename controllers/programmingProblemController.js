@@ -85,7 +85,7 @@ const createProblem = async (req, res) => {
       creator: req.user._id,
       allowedLanguages: allowedLanguages || [],
       timeLimit: timeLimit || 2,
-      memoryLimit: memoryLimit || 128000,
+      memoryLimit: memoryLimit || 134217728, // 128MB in bytes
       testCases,
       examples: examples || [],
       constraints: constraints || [],
@@ -505,6 +505,14 @@ const updateProblem = async (req, res) => {
       }
     });
 
+    // Log test cases update for debugging
+    if (updates.testCases) {
+      console.log(`📝 Updating test cases for problem ${req.params.id}:`, {
+        count: updates.testCases.length,
+        testCases: updates.testCases
+      });
+    }
+
     problem = await ProgrammingProblem.findByIdAndUpdate(
       req.params.id,
       { ...updates, updatedAt: new Date() },
@@ -513,6 +521,8 @@ const updateProblem = async (req, res) => {
       { path: "creator", select: "name email" },
       { path: "course", select: "title subject" },
     ]);
+
+    console.log(`✅ Problem updated successfully. Test cases count: ${problem.testCases?.length || 0}`);
 
     res.json({
       success: true,

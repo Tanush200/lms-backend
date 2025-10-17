@@ -104,7 +104,7 @@ const testCode = async (req, res) => {
     }
 
     console.log(
-      `🧪 Testing code for problem ${problemId}, example ${exampleIndex}`
+      `🧪 Testing code for problem ${problemId}, example ${exampleIndex}, language: ${language}`
     );
 
     const result = await judge0Service.testExample(
@@ -114,13 +114,16 @@ const testCode = async (req, res) => {
       exampleIndex
     );
 
+    console.log("✅ Test completed successfully");
+
     res.json({
       success: true,
       message: "Code test completed",
       data: { result },
     });
   } catch (error) {
-    console.error("Test code error:", error);
+    console.error("❌ Test code error:", error);
+    console.error("Error stack:", error.stack);
     res.status(500).json({
       success: false,
       message: "Could not test code",

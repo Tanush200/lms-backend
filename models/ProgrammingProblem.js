@@ -78,9 +78,9 @@ const programmingProblemSchema = new mongoose.Schema(
     },
     memoryLimit: {
       type: Number,
-      default: 128000,
-      min: [16000, "Memory limit must be at least 16MB"],
-      max: [512000, "Memory limit cannot exceed 512MB"],
+      default: 134217728, // 128MB in bytes
+      min: [16777216, "Memory limit must be at least 16MB"], // 16MB in bytes
+      max: [536870912, "Memory limit cannot exceed 512MB"], // 512MB in bytes
     },
 
     testCases: [
