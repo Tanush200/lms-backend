@@ -145,11 +145,14 @@ class NotificationService {
             payload
           );
         } catch (error) {
-          // If subscription expired, remove it
-          if (error.statusCode === 410) {
+          // If subscription expired (410) or gone (404), remove it silently
+          if (error.statusCode === 410 || error.statusCode === 404) {
             await PushSubscription.findByIdAndDelete(sub._id);
+            console.log(` Removed expired push subscription for user ${userId}`);
+          } else {
+            // Only log non-expiry errors
+            console.error("Push notification error:", error.message);
           }
-          console.error("Push notification error:", error);
         }
       });
 

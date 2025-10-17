@@ -75,6 +75,15 @@ const initializeSocket = (server) => {
           fileSize,
         } = data;
 
+        // Validate required fields
+        if (!receiverId || !content || !studentId || !courseId) {
+          console.error("❌ Missing required fields:", { receiverId, content, studentId, courseId });
+          socket.emit("message-error", { 
+            error: "Missing required fields: receiverId, content, studentId, or courseId" 
+          });
+          return;
+        }
+
         const Message = require("../models/Message");
         const Conversation = require("../models/Conversation");
 

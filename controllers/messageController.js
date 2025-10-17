@@ -191,6 +191,12 @@ const getStudentsWithParents = async (req, res) => {
     // Try to resolve a real parent User by email if parentContact exists; otherwise via parent.parentOf linkage
     const studentsWithParents = [];
     for (const enrollment of enrollments) {
+      // Skip if student was deleted
+      if (!enrollment.student) {
+        console.warn(`⚠️ Enrollment ${enrollment._id} has no student (deleted?)`);
+        continue;
+      }
+      
       let parent = null;
       const contact = enrollment.student.parentContact || null;
       if (contact?.email) {

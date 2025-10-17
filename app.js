@@ -190,14 +190,10 @@ app.use(
 
 app.use("/api/schools", protect, checkSubscriptionAccess, schoolRoutes);
 app.use("/api/super-admin", superAdminRoutes); // Super admin bypasses subscription check
-app.use("/api/messages", protect, checkSubscriptionAccess, messageRoutes);
 
-app.use(
-  "/api/notifications",
-  protect,
-  checkSubscriptionAccess,
-  notificationRoutes
-);
+// Messages and notifications should work without subscription (for communication)
+app.use("/api/messages", protect, messageRoutes);
+app.use("/api/notifications", protect, notificationRoutes);
 app.use(
   "/api/academic-calendar",
   protect,
