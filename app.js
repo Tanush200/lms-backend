@@ -93,6 +93,8 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const subscriptionRoutes = require("./routes/subscriptionRoutes");
 const schoolRegistrationRoutes = require("./routes/schoolRegistrationRoutes");
 const academicCalendarRoutes = require("./routes/academicCalendarRoutes");
+const brandingRoutes = require("./routes/brandingRoutes");
+
 
 // ========================================
 // IMPORT MIDDLEWARE
@@ -188,6 +190,8 @@ app.use(
   feeReminderRoutes
 );
 
+// Branding routes should be accessible without subscription (for subscription page UI)
+app.use("/api/schools", protect, brandingRoutes);
 app.use("/api/schools", protect, checkSubscriptionAccess, schoolRoutes);
 app.use("/api/super-admin", superAdminRoutes); // Super admin bypasses subscription check
 
