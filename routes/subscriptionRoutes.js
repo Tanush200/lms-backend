@@ -12,6 +12,9 @@ const {
 } = require("../controllers/subscriptionController");
 const { protect, authorize } = require("../middleware/auth");
 
+// Public webhook route (must be before protected routes)
+router.post("/webhook", handlePaymentWebhook);
+
 // Protected routes (School Admin)
 router.get("/my-subscription", protect, getMySubscription);
 router.get("/status", protect, getSubscriptionStatus);

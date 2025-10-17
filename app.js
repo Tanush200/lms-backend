@@ -121,21 +121,16 @@ app.get("/", (req, res) => {
 // ========================================
 app.use("/api/school-registration", schoolRegistrationRoutes);
 
-// Webhook route (public - no auth)
-const { handlePaymentWebhook } = require("./controllers/subscriptionController");
-app.post("/api/subscriptions/webhook", handlePaymentWebhook);
-
 // ========================================
 // AUTH ROUTES
 // ========================================
 app.use("/api/auth", authRoutes);
 
 // ========================================
-// SUBSCRIPTION ROUTES (Protected but NO subscription check)
+// SUBSCRIPTION ROUTES (Some public, some protected)
 // ========================================
-// ✅ Subscription routes use protect middleware ONLY
-// This allows admins without active subscription to access subscription management
-app.use("/api/subscriptions", protect, subscriptionRoutes);
+// ✅ Webhook is public (no auth), other routes are protected
+app.use("/api/subscriptions", subscriptionRoutes);
 
 // ========================================
 // PROTECTED ROUTES (With Subscription Check)

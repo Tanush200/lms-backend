@@ -179,7 +179,8 @@ const initiatePayment = async (req, res) => {
             schoolCode: school.code,
             plan: plan,
           },
-          redirect_url: `${process.env.FRONTEND_URL}/dashboard?payment_return=true`,
+          return_url: `${process.env.FRONTEND_URL}/subscription/success`,
+          redirect_url: `${process.env.FRONTEND_URL}/subscription/success`,
         },
         {
           headers: {
