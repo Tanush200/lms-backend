@@ -320,6 +320,25 @@ const getQuizzes = async (req, res) => {
 
     const total = await Quiz.countDocuments(query);
 
+    // ✅ Add attempt data for students
+    if (req.user.role === "student") {
+      for (let quiz of quizzes) {
+        const attemptCount = await QuizAttempt.countDocuments({
+          quiz: quiz._id,
+          student: req.user._id,
+        });
+        
+        const lastAttempt = await QuizAttempt.findOne({
+          quiz: quiz._id,
+          student: req.user._id,
+        }).sort({ attemptNumber: -1 });
+
+        quiz._doc.attemptCount = attemptCount;
+        quiz._doc.lastAttempt = lastAttempt;
+        quiz._doc.canAttempt = quiz.canAttempt(req.user, attemptCount);
+      }
+    }
+
     console.log("📊 Quiz fetch result:", {
       user: req.user.email,
       role: req.user.role,
