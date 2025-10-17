@@ -8,6 +8,12 @@ class Judge0Service {
       process.env.JUDGE0_API_URL || "https://judge0-ce.p.rapidapi.com";
     this.apiKey = process.env.JUDGE0_API_KEY;
     this.apiHost = process.env.JUDGE0_API_HOST || "judge0-ce.p.rapidapi.com";
+    
+    // Check if API key is configured
+    if (!this.apiKey) {
+      console.warn('⚠️ JUDGE0_API_KEY is not configured. Code execution will not work.');
+      console.warn('Please set JUDGE0_API_KEY in your .env file.');
+    }
 
 
     this.defaultLanguageIds = {
@@ -146,6 +152,20 @@ class Judge0Service {
     testIndex
   ) {
     try {
+      // Judge0 memory limit must be in KB and max 2048000 (2GB)
+      // Convert from bytes to KB if needed and cap at maximum
+      let memoryLimitKB = memoryLimit;
+      
+      // If memory limit seems to be in bytes (> 2048000), convert to KB
+      if (memoryLimit > 2048000) {
+        memoryLimitKB = Math.floor(memoryLimit / 1024);
+      }
+      
+      // Cap at Judge0's maximum (2GB = 2048000 KB)
+      memoryLimitKB = Math.min(memoryLimitKB, 2048000);
+      
+      console.log(`📊 Memory limit: ${memoryLimit} -> ${memoryLimitKB} KB (capped at 2048000)`);
+      
       const submissionData = {
         source_code: Buffer.from(code).toString("base64"),
         language_id: languageId,
@@ -154,7 +174,7 @@ class Judge0Service {
           "base64"
         ),
         cpu_time_limit: timeLimit,
-        memory_limit: memoryLimit,
+        memory_limit: memoryLimitKB,
         wall_time_limit: timeLimit + 2,
         enable_per_process_and_thread_time_limit: false,
         enable_per_process_and_thread_memory_limit: false,
@@ -256,6 +276,11 @@ class Judge0Service {
    */
   async testExample(code, language, problemId, exampleIndex) {
     try {
+      // Check if API key is configured
+      if (!this.apiKey) {
+        throw new Error('Judge0 API key is not configured. Please contact the administrator.');
+      }
+      
       console.log(`🔍 Finding problem ${problemId}...`);
       const problem = await ProgrammingProblem.findById(problemId);
       
@@ -304,6 +329,18 @@ class Judge0Service {
     } catch (error) {
       console.error("❌ Example test error:", error.message);
       console.error("Error stack:", error.stack);
+      
+      // Provide more helpful error messages
+      if (error.message.includes('API key')) {
+        throw new Error('Judge0 API is not configured. Please contact your administrator.');
+      } else if (error.response?.status === 401) {
+        throw new Error('Invalid Judge0 API credentials. Please contact your administrator.');
+      } else if (error.response?.status === 429) {
+        throw new Error('Rate limit exceeded. Please try again in a few moments.');
+      } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        throw new Error('Cannot connect to Judge0 service. Please try again later.');
+      }
+      
       throw error;
     }
   }
