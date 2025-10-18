@@ -210,7 +210,7 @@ const uploadDocument = multer({
 const uploadCourseContent = multer({
   storage: courseContentStorage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB
+    fileSize: 1024 * 1024 * 1024, // 1GB
   },
   fileFilter: (req, file, cb) => {
     console.log('📁 Uploading file:', {

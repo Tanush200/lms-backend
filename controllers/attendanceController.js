@@ -268,7 +268,6 @@ const markBulkAttendance = async (req, res) => {
       }
     }
 
-    // ✅ FIX: Normalize date to UTC midnight to avoid timezone issues
     const normalizedDate = new Date(date);
     normalizedDate.setUTCHours(0, 0, 0, 0);
 
@@ -277,7 +276,6 @@ const markBulkAttendance = async (req, res) => {
       const user = await User.findById(entry.studentId);
       if (!user) continue;
 
-      // ✅ FIX: Verify student belongs to same school
       if (req.user.role !== "super_admin") {
         const userSchoolId = (
           req.user.school?._id || req.user.school
@@ -285,7 +283,7 @@ const markBulkAttendance = async (req, res) => {
         const studentSchoolId = user.school.toString();
 
         if (studentSchoolId !== userSchoolId) {
-          continue; // Skip students from different schools
+          continue;
         }
       }
 
