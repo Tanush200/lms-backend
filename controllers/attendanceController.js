@@ -268,6 +268,10 @@ const markBulkAttendance = async (req, res) => {
       }
     }
 
+    // ✅ FIX: Normalize date to UTC midnight to avoid timezone issues
+    const normalizedDate = new Date(date);
+    normalizedDate.setUTCHours(0, 0, 0, 0);
+
     const records = [];
     for (const entry of attendanceList) {
       const user = await User.findById(entry.studentId);
@@ -286,11 +290,11 @@ const markBulkAttendance = async (req, res) => {
       }
 
       const record = await Attendance.findOneAndUpdate(
-        { course: courseId, student: entry.studentId, date: date },
+        { course: courseId, student: entry.studentId, date: normalizedDate },
         {
           course: courseId,
           student: entry.studentId,
-          date,
+          date: normalizedDate,
           status: entry.status || "present",
           markedBy: req.user._id,
           remarks: entry.remarks || "",

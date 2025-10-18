@@ -93,10 +93,10 @@ router.get(
         .populate("instructor", "name email")
         .populate("school", "name code");
 
-      // Optional: compute enrollment counts
+      // Optional: compute enrollment counts (active, approved, and completed enrollments)
       const courseIds = courses.map((c) => c._id);
       const counts = await Enrollment.aggregate([
-        { $match: { course: { $in: courseIds } } },
+        { $match: { course: { $in: courseIds }, status: { $in: ["active", "approved", "completed"] } } },
         { $group: { _id: "$course", count: { $sum: 1 } } },
       ]);
       const countMap = new Map(counts.map((c) => [c._id.toString(), c.count]));

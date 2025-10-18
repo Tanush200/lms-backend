@@ -182,10 +182,10 @@ const getStudentsWithParents = async (req, res) => {
       });
     }
 
-    // Get enrolled students
-      const enrollments = await Enrollment.find({
+    // Get enrolled students (active, approved, and completed)
+    const enrollments = await Enrollment.find({
       course: courseId,
-      status: "active",
+      status: { $in: ["active", "approved", "completed"] },
     }).populate("student", "name email parentContact");
 
     // Try to resolve a real parent User by email if parentContact exists; otherwise via parent.parentOf linkage
